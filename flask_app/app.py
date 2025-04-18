@@ -11,6 +11,7 @@ import requests
 
 sys.path.append(str(Path(__file__).parent.parent))
 from utils.aec_data_downloader import download_and_process_aec_data, get_candidates_for_electorate
+from utils.booth_results_processor import process_and_load_booth_results, get_booth_results_for_division, get_booth_results_for_polling_place, calculate_swing
 
 load_dotenv()
 
@@ -109,11 +110,21 @@ def get_last_updated_time():
         data_dir = Path(__file__).parent.parent / "data"
         senate_path = data_dir / "senate-candidates.csv"
         house_path = data_dir / "house-candidates.csv"
+        booth_results_path = data_dir / "HouseTppByPollingPlaceDownload-27966.csv"
         
-        if senate_path.exists() and house_path.exists():
-            senate_time = datetime.datetime.fromtimestamp(senate_path.stat().st_mtime)
-            house_time = datetime.datetime.fromtimestamp(house_path.stat().st_mtime)
-            return max(senate_time, house_time).strftime("%Y-%m-%d %H:%M:%S")
+        files_to_check = [
+            senate_path,
+            house_path,
+            booth_results_path
+        ]
+        
+        timestamps = []
+        for file_path in files_to_check:
+            if file_path.exists():
+                timestamps.append(datetime.datetime.fromtimestamp(file_path.stat().st_mtime))
+        
+        if timestamps:
+            return max(timestamps).strftime("%Y-%m-%d %H:%M:%S")
         return "Never"
     except Exception as e:
         app.logger.error(f"Error getting last updated time: {e}")
@@ -186,6 +197,97 @@ def api_candidates():
 def api_electorates():
     electorates = get_all_electorates()
     return jsonify(electorates)
+
+@app.route('/booth-results')
+def get_booth_results_page():
+    electorate = request.args.get('electorate', '')
+    booth = request.args.get('booth', '')
+    
+    electorates = get_all_electorates()
+    last_updated = get_last_updated_time()
+    
+    booth_results = []
+    if electorate:
+        booth_results = get_booth_results_for_division(electorate)
+        if booth and booth.strip():
+            booth_results = [r for r in booth_results if booth.lower() in r['polling_place_name'].lower()]
+    
+    current_results_query = Result.query.order_by(Result.timestamp.desc())
+    if electorate:
+        current_results_query = current_results_query.filter(Result.electorate == electorate)
+    if booth:
+        current_results_query = current_results_query.filter(Result.booth_name.like(f"%{booth}%"))
+    
+    current_results = current_results_query.all()
+    
+    if booth_results and current_results:
+        for booth_result in booth_results:
+            matching_result = next(
+                (r for r in current_results if r.booth_name and 
+                 booth_result['polling_place_name'].lower() in r.booth_name.lower() or
+                 r.booth_name.lower() in booth_result['polling_place_name'].lower()),
+                None
+            )
+            
+            if matching_result:
+                tcp_votes = matching_result.get_tcp_votes()
+                if tcp_votes and len(tcp_votes) >= 2:
+                    liberal_votes = list(tcp_votes.values())[0]
+                    labor_votes = list(tcp_votes.values())[1]
+                    total_votes = liberal_votes + labor_votes
+                    
+                    if total_votes > 0:
+                        liberal_pct = (liberal_votes / total_votes) * 100
+                        labor_pct = (labor_votes / total_votes) * 100
+                        
+                        current_result_data = {
+                            'liberal_national_percentage': liberal_pct,
+                            'labor_percentage': labor_pct
+                        }
+                        
+                        booth_result['current_swing'] = calculate_swing(
+                            current_result_data, 
+                            booth_result
+                        )
+    
+    return render_template(
+        'booth_results.html',
+        booth_results=booth_results,
+        current_results=current_results,
+        electorates=electorates,
+        electorate=electorate,
+        booth=booth,
+        last_updated=last_updated
+    )
+
+@app.route('/update-booth-data')
+def update_booth_data():
+    try:
+        success = process_and_load_booth_results()
+        if success:
+            flash("Booth results data updated successfully!", "success")
+        else:
+            flash("Failed to update booth results data. Check logs for details.", "error")
+    except Exception as e:
+        app.logger.error(f"Error updating booth results data: {e}")
+        flash(f"Error updating booth results data: {str(e)}", "error")
+    
+    return redirect(url_for('get_booth_results_page'))
+
+@app.route('/api/booth-results')
+def api_booth_results():
+    electorate = request.args.get('electorate', '')
+    booth = request.args.get('booth', '')
+    
+    if not electorate:
+        return jsonify({"error": "Electorate parameter is required"}), 400
+    
+    booth_results = get_booth_results_for_division(electorate)
+    
+    if booth:
+        booth_results = [r for r in booth_results if booth.lower() in r['polling_place_name'].lower()]
+    
+    return jsonify(booth_results)
 
 @app.route('/api/notify', methods=['POST'])
 def notify():
