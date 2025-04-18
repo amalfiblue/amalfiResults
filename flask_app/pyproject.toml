@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "flask-app"
+version = "0.1.0"
+description = "Flask app to display tally sheet results"
+authors = ["Devin AI <devin-ai-integration[bot]@users.noreply.github.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+flask = "^2.3.3"
+flask-sqlalchemy = "^3.1.1"
+python-dotenv = "^1.0.0"
+requests = "^2.31.0"
+flask-socketio = "^5.5.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
