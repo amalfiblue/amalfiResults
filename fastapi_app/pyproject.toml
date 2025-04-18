@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "fastapi-app"
+version = "0.1.0"
+description = "FastAPI service for scanning tally sheet images and storing results"
+authors = ["Devin AI <devin-ai-integration[bot]@users.noreply.github.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+fastapi = "^0.103.1"
+uvicorn = "^0.23.2"
+sqlalchemy = "^2.0.20"
+python-dotenv = "^1.0.0"
+httpx = "^0.24.1"
+pillow = "^10.0.0"
+pytesseract = "^0.3.10"
+python-multipart = "^0.0.6"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

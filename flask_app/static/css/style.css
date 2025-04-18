@@ -1,0 +1,24 @@
+/* Custom styles for Amalfi Results */
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.jumbotron {
+    padding: 2rem;
+    background-color: #f8f9fa;
+    border-radius: 0.3rem;
+}
+
+pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.navbar-brand {
+    font-weight: bold;
+}
+
+.table-responsive {
+    overflow-x: auto;
+}
