@@ -34,6 +34,9 @@ poetry.lock
 *.db
 *.sqlite3
 
+# Application specific
+data/
+
 # IDE
 .idea/
 .vscode/
