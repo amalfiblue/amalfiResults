@@ -61,10 +61,13 @@
                                                 {% endif %}
                                             </td>
                                             <td>
-                                                <button class="btn btn-sm btn-primary" 
+                                                <a href="/results/{{ result.id }}" class="btn btn-sm btn-primary">
+                                                    View Details
+                                                </a>
+                                                <button class="btn btn-sm btn-outline-secondary" 
                                                         data-bs-toggle="collapse" 
                                                         data-bs-target="#result-{{ result.id }}">
-                                                    View Data
+                                                    Raw Data
                                                 </button>
                                                 <div class="collapse mt-2" id="result-{{ result.id }}">
                                                     <div class="card card-body">
