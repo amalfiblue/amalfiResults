@@ -4,10 +4,13 @@ import json
 import sqlite3
 import datetime
 from pathlib import Path
-from flask import Flask, render_template, jsonify, request, redirect, url_for, flash
+from flask import Flask, render_template, jsonify, request, redirect, url_for, flash, session, get_flashed_messages
 from flask_sqlalchemy import SQLAlchemy
+from flask_socketio import SocketIO, emit
 from dotenv import load_dotenv
 import requests
+import threading
+import time
 
 sys.path.append(str(Path(__file__).parent.parent))
 from utils.aec_data_downloader import download_and_process_aec_data, get_candidates_for_electorate
@@ -21,6 +24,9 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////home/ubuntu/repos/amalfiResu
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_key_for_amalfi_results')
 db = SQLAlchemy(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
+
+app.config['IS_ADMIN'] = True
 
 class Result(db.Model):
     __tablename__ = "results"
@@ -59,6 +65,24 @@ class Result(db.Model):
         if self.data and 'totals' in self.data:
             return self.data['totals']
         return {'formal': None, 'informal': None, 'total': None}
+
+class TCPCandidate(db.Model):
+    __tablename__ = "tcp_candidates"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    electorate = db.Column(db.String(100), index=True)
+    candidate_id = db.Column(db.Integer)
+    candidate_name = db.Column(db.String(100))
+    position = db.Column(db.Integer)  # 1 or 2 for the two TCP candidates
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'electorate': self.electorate,
+            'candidate_id': self.candidate_id,
+            'candidate_name': self.candidate_name,
+            'position': self.position
+        }
 
 with app.app_context():
     db.create_all()
@@ -289,12 +313,327 @@ def api_booth_results():
     
     return jsonify(booth_results)
 
+@app.route('/dashboard')
+@app.route('/dashboard/<electorate>')
+def get_dashboard(electorate=None):
+    """Electorate dashboard showing live results"""
+    electorates = get_all_electorates()
+    last_updated = get_last_updated_time()
+    
+    # Get booth counts for each electorate
+    booth_counts = {}
+    total_booths = {}
+    
+    for e in electorates:
+        booth_counts[e] = Result.query.filter_by(electorate=e).count()
+        
+        historical_booths = get_booth_results_for_division(e)
+        total_booths[e] = len(historical_booths) if historical_booths else 0
+    
+    if not electorate and electorates:
+        electorate = electorates[0]
+    
+    # Get booth results for the selected electorate
+    booth_results = []
+    primary_votes = {}
+    tcp_votes = {}
+    
+    if electorate:
+        # Get current results for this electorate
+        results = Result.query.filter_by(electorate=electorate).order_by(Result.timestamp.desc()).all()
+        
+        for result in results:
+            booth_data = result.to_dict()
+            booth_data['totals'] = result.get_totals()
+            
+            historical_booth = get_booth_results_for_polling_place(electorate, result.booth_name)
+            if historical_booth:
+                tcp_data = result.get_tcp_votes()
+                if tcp_data and len(tcp_data) >= 2:
+                    liberal_votes = list(tcp_data.values())[0]
+                    labor_votes = list(tcp_data.values())[1]
+                    total_votes = liberal_votes + labor_votes
+                    
+                    if total_votes > 0:
+                        liberal_pct = (liberal_votes / total_votes) * 100
+                        labor_pct = (labor_votes / total_votes) * 100
+                        
+                        current_result_data = {
+                            'liberal_national_percentage': liberal_pct,
+                            'labor_percentage': labor_pct
+                        }
+                        
+                        booth_data['swing'] = calculate_swing(
+                            current_result_data, 
+                            historical_booth
+                        )
+            
+            booth_results.append(booth_data)
+        
+        for result in results:
+            primary_result = result.get_primary_votes()
+            for candidate, votes in primary_result.items():
+                if candidate in primary_votes:
+                    primary_votes[candidate]['votes'] += votes
+                else:
+                    primary_votes[candidate] = {'votes': votes, 'percentage': 0}
+        
+        total_primary_votes = sum(item['votes'] for item in primary_votes.values())
+        if total_primary_votes > 0:
+            for candidate in primary_votes:
+                primary_votes[candidate]['percentage'] = (primary_votes[candidate]['votes'] / total_primary_votes) * 100
+        
+        tcp_candidates = TCPCandidate.query.filter_by(electorate=electorate).order_by(TCPCandidate.position).all()
+        tcp_candidate_names = [c.candidate_name for c in tcp_candidates]
+        
+        for result in results:
+            tcp_result = result.get_tcp_votes()
+            
+            if tcp_candidate_names and len(tcp_candidate_names) == 2:
+                for i, candidate in enumerate(tcp_candidate_names):
+                    if i < len(tcp_result):
+                        votes = list(tcp_result.values())[i]
+                        if candidate in tcp_votes:
+                            tcp_votes[candidate]['votes'] += votes
+                        else:
+                            tcp_votes[candidate] = {'votes': votes, 'percentage': 0}
+            else:
+                for i, (candidate, votes) in enumerate(tcp_result.items()):
+                    if i >= 2:  # Only use first two candidates
+                        break
+                    if candidate in tcp_votes:
+                        tcp_votes[candidate]['votes'] += votes
+                    else:
+                        tcp_votes[candidate] = {'votes': votes, 'percentage': 0}
+        
+        total_tcp_votes = sum(item['votes'] for item in tcp_votes.values())
+        if total_tcp_votes > 0:
+            for candidate in tcp_votes:
+                tcp_votes[candidate]['percentage'] = (tcp_votes[candidate]['votes'] / total_tcp_votes) * 100
+    
+    is_admin = app.config.get('IS_ADMIN', False)
+    
+    return render_template(
+        'electorate_dashboard.html',
+        electorates=electorates,
+        selected_electorate=electorate,
+        booth_results=booth_results,
+        primary_votes=primary_votes,
+        tcp_votes=tcp_votes,
+        booth_counts=booth_counts,
+        total_booths=total_booths,
+        last_updated=last_updated,
+        is_admin=is_admin
+    )
+
+@app.route('/admin/tcp-candidates/<electorate>', methods=['GET', 'POST'])
+def admin_tcp_candidates(electorate):
+    """Admin page to set TCP candidates for an electorate"""
+    if not app.config.get('IS_ADMIN', False):
+        flash("Admin access required", "error")
+        return redirect(url_for('get_dashboard'))
+    
+    if request.method == 'POST':
+        candidate_ids = request.form.getlist('tcp_candidates')
+        
+        if len(candidate_ids) != 2:
+            flash("You must select exactly two candidates for TCP counting", "error")
+        else:
+            try:
+                # Delete existing TCP candidates for this electorate
+                TCPCandidate.query.filter_by(electorate=electorate).delete()
+                
+                candidates_data = get_candidates(electorate, 'house')
+                
+                # Add new TCP candidates
+                for position, candidate_id in enumerate(candidate_ids, 1):
+                    candidate_id = int(candidate_id)
+                    candidate = next((c for c in candidates_data if c['id'] == candidate_id), None)
+                    
+                    if candidate:
+                        tcp_candidate = TCPCandidate(
+                            electorate=electorate,
+                            candidate_id=candidate_id,
+                            candidate_name=candidate['name'],
+                            position=position
+                        )
+                        db.session.add(tcp_candidate)
+                
+                db.session.commit()
+                flash("TCP candidates updated successfully", "success")
+                
+                socketio.emit('tcp_update', {'electorate': electorate}, namespace='/dashboard')
+                
+            except Exception as e:
+                db.session.rollback()
+                app.logger.error(f"Error setting TCP candidates: {e}")
+                flash(f"Error setting TCP candidates: {str(e)}", "error")
+        
+        return redirect(url_for('admin_tcp_candidates', electorate=electorate))
+    
+    # Get candidates for this electorate
+    candidates = get_candidates(electorate, 'house')
+    
+    # Add current votes to candidates
+    results = Result.query.filter_by(electorate=electorate).all()
+    candidate_votes = {}
+    
+    for result in results:
+        primary_votes = result.get_primary_votes()
+        for candidate, votes in primary_votes.items():
+            if candidate in candidate_votes:
+                candidate_votes[candidate] += votes
+            else:
+                candidate_votes[candidate] = votes
+    
+    for candidate in candidates:
+        candidate['votes'] = candidate_votes.get(candidate['name'], 0)
+    
+    # Get current TCP candidates
+    tcp_candidates = TCPCandidate.query.filter_by(electorate=electorate).order_by(TCPCandidate.position).all()
+    tcp_candidate_names = [c.candidate_name for c in tcp_candidates]
+    
+    messages = []
+    for category, message in get_flashed_messages(with_categories=True):
+        messages.append((category, message))
+    
+    return render_template(
+        'admin_tcp_candidates.html',
+        electorate=electorate,
+        candidates=candidates,
+        tcp_candidates=tcp_candidate_names,
+        messages=messages
+    )
+
+@app.route('/api/dashboard/<electorate>')
+def api_dashboard(electorate):
+    """API endpoint for dashboard data"""
+    # Get booth counts
+    booth_count = Result.query.filter_by(electorate=electorate).count()
+    
+    historical_booths = get_booth_results_for_division(electorate)
+    total_booths = len(historical_booths) if historical_booths else 0
+    
+    # Get booth results for the selected electorate
+    results = Result.query.filter_by(electorate=electorate).order_by(Result.timestamp.desc()).all()
+    
+    booth_results = []
+    primary_votes = {}
+    tcp_votes = {}
+    
+    for result in results:
+        booth_data = result.to_dict()
+        booth_data['totals'] = result.get_totals()
+        
+        historical_booth = get_booth_results_for_polling_place(electorate, result.booth_name)
+        if historical_booth:
+            tcp_data = result.get_tcp_votes()
+            if tcp_data and len(tcp_data) >= 2:
+                liberal_votes = list(tcp_data.values())[0]
+                labor_votes = list(tcp_data.values())[1]
+                total_votes = liberal_votes + labor_votes
+                
+                if total_votes > 0:
+                    liberal_pct = (liberal_votes / total_votes) * 100
+                    labor_pct = (labor_votes / total_votes) * 100
+                    
+                    current_result_data = {
+                        'liberal_national_percentage': liberal_pct,
+                        'labor_percentage': labor_pct
+                    }
+                    
+                    booth_data['swing'] = calculate_swing(
+                        current_result_data, 
+                        historical_booth
+                    )
+        
+        booth_results.append(booth_data)
+    
+    for result in results:
+        primary_result = result.get_primary_votes()
+        for candidate, votes in primary_result.items():
+            if candidate in primary_votes:
+                primary_votes[candidate]['votes'] += votes
+            else:
+                primary_votes[candidate] = {'votes': votes, 'percentage': 0}
+    
+    total_primary_votes = sum(item['votes'] for item in primary_votes.values())
+    if total_primary_votes > 0:
+        for candidate in primary_votes:
+            primary_votes[candidate]['percentage'] = (primary_votes[candidate]['votes'] / total_primary_votes) * 100
+    
+    tcp_candidates = TCPCandidate.query.filter_by(electorate=electorate).order_by(TCPCandidate.position).all()
+    tcp_candidate_names = [c.candidate_name for c in tcp_candidates]
+    
+    for result in results:
+        tcp_result = result.get_tcp_votes()
+        
+        if tcp_candidate_names and len(tcp_candidate_names) == 2:
+            for i, candidate in enumerate(tcp_candidate_names):
+                if i < len(tcp_result):
+                    votes = list(tcp_result.values())[i]
+                    if candidate in tcp_votes:
+                        tcp_votes[candidate]['votes'] += votes
+                    else:
+                        tcp_votes[candidate] = {'votes': votes, 'percentage': 0}
+        else:
+            for i, (candidate, votes) in enumerate(tcp_result.items()):
+                if i >= 2:  # Only use first two candidates
+                    break
+                if candidate in tcp_votes:
+                    tcp_votes[candidate]['votes'] += votes
+                else:
+                    tcp_votes[candidate] = {'votes': votes, 'percentage': 0}
+    
+    total_tcp_votes = sum(item['votes'] for item in tcp_votes.values())
+    if total_tcp_votes > 0:
+        for candidate in tcp_votes:
+            tcp_votes[candidate]['percentage'] = (tcp_votes[candidate]['votes'] / total_tcp_votes) * 100
+    
+    primary_votes_list = [
+        {'candidate': candidate, 'votes': data['votes'], 'percentage': data['percentage']}
+        for candidate, data in primary_votes.items()
+    ]
+    
+    tcp_votes_list = [
+        {'candidate': candidate, 'votes': data['votes'], 'percentage': data['percentage']}
+        for candidate, data in tcp_votes.items()
+    ]
+    
+    return jsonify({
+        'booth_count': booth_count,
+        'total_booths': total_booths,
+        'last_updated': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'primary_votes': primary_votes_list,
+        'tcp_votes': tcp_votes_list,
+        'booth_results': booth_results
+    })
+
 @app.route('/api/notify', methods=['POST'])
 def notify():
     """Endpoint for FastAPI to notify of new results"""
     data = request.json
     app.logger.info(f"Received notification: {data}")
+    
+    if 'electorate' in data:
+        socketio.emit('update', {'electorate': data['electorate']}, namespace='/dashboard')
+    
     return jsonify({"status": "success", "message": "Notification received"})
 
+@socketio.on('connect', namespace='/dashboard')
+def dashboard_connect():
+    app.logger.info(f"Client connected to dashboard: {request.sid}")
+
+@socketio.on('disconnect', namespace='/dashboard')
+def dashboard_disconnect():
+    app.logger.info(f"Client disconnected from dashboard: {request.sid}")
+
+@socketio.on('join', namespace='/dashboard')
+def dashboard_join(data):
+    """Join a specific electorate's dashboard room"""
+    if 'electorate' in data:
+        app.logger.info(f"Client {request.sid} joined electorate: {data['electorate']}")
+        socketio.emit('status', {'status': 'connected', 'electorate': data['electorate']}, room=request.sid)
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    socketio.run(app, debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), allow_unsafe_werkzeug=True)

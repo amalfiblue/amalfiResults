@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Set TCP Candidates - Amalfi Results</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">Amalfi Results</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/results">Results</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/candidates">Candidates</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/booth-results">Booth Results</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/dashboard">Dashboard</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="mb-0">Set Two-Candidate Preferred (TCP) Candidates for {{ electorate }}</h4>
+                    </div>
+                    <div class="card-body">
+                        {% if messages %}
+                            {% for category, message in messages %}
+                                <div class="alert alert-{{ category }}">{{ message }}</div>
+                            {% endfor %}
+                        {% endif %}
+                        
+                        <p class="mb-4">
+                            Select the two candidates that will be used for Two-Candidate Preferred (TCP) counting in this electorate.
+                            These are typically the two candidates expected to receive the highest number of votes after preferences are distributed.
+                        </p>
+                        
+                        <form method="post" action="/admin/tcp-candidates/{{ electorate|urlencode }}">
+                            <div class="mb-4">
+                                <h5>Current TCP Candidates</h5>
+                                {% if tcp_candidates %}
+                                    <div class="alert alert-info">
+                                        <strong>Current TCP Candidates:</strong>
+                                        <ol>
+                                            {% for candidate in tcp_candidates %}
+                                                <li>{{ candidate }}</li>
+                                            {% endfor %}
+                                        </ol>
+                                    </div>
+                                {% else %}
+                                    <div class="alert alert-warning">
+                                        No TCP candidates have been set for this electorate yet.
+                                    </div>
+                                {% endif %}
+                            </div>
+                            
+                            <div class="mb-4">
+                                <h5>Available Candidates</h5>
+                                <div class="table-responsive">
+                                    <table class="table table-striped">
+                                        <thead>
+                                            <tr>
+                                                <th>Select</th>
+                                                <th>Candidate Name</th>
+                                                <th>Party</th>
+                                                <th>Ballot Position</th>
+                                                <th>Current Votes</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for candidate in candidates %}
+                                            <tr>
+                                                <td>
+                                                    <div class="form-check">
+                                                        <input class="form-check-input" type="checkbox" name="tcp_candidates" 
+                                                               value="{{ candidate.id }}" id="candidate-{{ candidate.id }}"
+                                                               {% if candidate.name in tcp_candidates %}checked{% endif %}
+                                                               onchange="validateSelection(this)">
+                                                    </div>
+                                                </td>
+                                                <td>{{ candidate.name }}</td>
+                                                <td>{{ candidate.party }}</td>
+                                                <td>{{ candidate.ballot_position }}</td>
+                                                <td>{{ candidate.votes|default(0) }}</td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            
+                            <div class="d-flex justify-content-between">
+                                <a href="/dashboard/{{ electorate|urlencode }}" class="btn btn-secondary">
+                                    Back to Dashboard
+                                </a>
+                                <button type="submit" class="btn btn-primary" id="submit-btn" disabled>
+                                    Save TCP Candidates
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function validateSelection(checkbox) {
+            const checkboxes = document.querySelectorAll('input[name="tcp_candidates"]:checked');
+            const submitBtn = document.getElementById('submit-btn');
+            
+            if (checkboxes.length > 2) {
+                checkbox.checked = false;
+                alert('You can only select two candidates for TCP counting.');
+            }
+            
+            submitBtn.disabled = checkboxes.length !== 2;
+        }
+        
+        // Run validation on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const checkboxes = document.querySelectorAll('input[name="tcp_candidates"]:checked');
+            const submitBtn = document.getElementById('submit-btn');
+            submitBtn.disabled = checkboxes.length !== 2;
+        });
+    </script>
+</body>
+</html>
