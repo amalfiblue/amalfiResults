@@ -1,4 +1,6 @@
 import os
+import re
+from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
@@ -7,11 +9,12 @@ import pytesseract
 import io
 import json
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, JSON
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, JSON, Float
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 import logging
+from typing import Dict, List, Optional, Any, Tuple
 
 load_dotenv()
 
@@ -39,9 +42,114 @@ class Result(Base):
     id = Column(Integer, primary_key=True, index=True)
     image_url = Column(String, index=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
+    electorate = Column(String, index=True)
+    booth_name = Column(String, index=True)
     data = Column(JSON)
 
 Base.metadata.create_all(bind=engine)
+def extract_tally_sheet_data(extracted_rows: List[List[str]]) -> Dict[str, Any]:
+    """
+    Extract structured data from tally sheet rows
+    """
+    result = {
+        "electorate": None,
+        "booth_name": None,
+        "primary_votes": {},
+        "two_candidate_preferred": {},
+        "totals": {
+            "formal": None,
+            "informal": None,
+            "total": None
+        }
+    }
+    
+    for row in extracted_rows[:5]:  # Check first few rows
+        row_text = " ".join(row).strip()
+        if "TALLY SHEET" in row_text:
+            match = re.search(r"([A-Z\s']+)'?S SCRUTINEER TALLY SHEET", row_text)
+            if match:
+                result["electorate"] = match.group(1).strip()
+            break
+    
+    for i, row in enumerate(extracted_rows[:10]):  # Check first few rows
+        row_text = " ".join(row).strip()
+        if "BOOTH NAME" in row_text or "BOOTH NAME:" in row_text:
+            booth_parts = row_text.split(":")
+            if len(booth_parts) > 1 and booth_parts[1].strip():
+                result["booth_name"] = booth_parts[1].strip()
+            elif i+1 < len(extracted_rows):
+                next_row = " ".join(extracted_rows[i+1]).strip()
+                if not any(keyword in next_row for keyword in ["YOUR NAME", "MOBILE", "Please record"]):
+                    result["booth_name"] = next_row
+            break
+    
+    table_start_idx = None
+    table_end_idx = None
+    
+    for i, row in enumerate(extracted_rows):
+        row_text = " ".join(row).strip().upper()
+        if "CANDIDATE" in row_text and "PRIMARY" in row_text and "VOTES" in row_text:
+            table_start_idx = i
+        if table_start_idx and "TOTAL VOTES" in row_text:
+            table_end_idx = i
+            break
+    
+    if table_start_idx and table_end_idx:
+        tcp_headers = []
+        for i in range(table_start_idx+1, table_start_idx+3):
+            if i < len(extracted_rows):
+                row = extracted_rows[i]
+                if any("STEGGALL" in word for word in row) or any("ROGERS" in word for word in row):
+                    tcp_headers = row
+                    break
+        
+        for i in range(table_start_idx+1, table_end_idx):
+            if i >= len(extracted_rows):
+                break
+                
+            row = extracted_rows[i]
+            if not row or len(row) < 2:
+                continue
+                
+            if any(header in " ".join(row).upper() for header in ["CANDIDATE", "STEGGALL", "ROGERS"]):
+                continue
+                
+            candidate_info = row[0] if len(row) > 0 else ""
+            
+            if not candidate_info or "Total" in candidate_info:
+                if "Total Formal Votes" in " ".join(row):
+                    if len(row) > 1 and row[1].strip() and row[1].strip().isdigit():
+                        result["totals"]["formal"] = int(row[1].strip())
+                elif "Informal" in " ".join(row):
+                    if len(row) > 1 and row[1].strip() and row[1].strip().isdigit():
+                        result["totals"]["informal"] = int(row[1].strip())
+                elif "Total Votes" in " ".join(row):
+                    if len(row) > 1 and row[1].strip() and row[1].strip().isdigit():
+                        result["totals"]["total"] = int(row[1].strip())
+                continue
+                
+            primary_votes = None
+            if len(row) > 1 and row[1].strip():
+                try:
+                    primary_votes = int(row[1].strip())
+                    result["primary_votes"][candidate_info] = primary_votes
+                except ValueError:
+                    pass
+            
+            if len(tcp_headers) >= 2 and len(row) > 2:
+                for j in range(2, min(len(row), len(tcp_headers))):
+                    if tcp_headers[j].strip() and row[j].strip():
+                        try:
+                            tcp_votes = int(row[j].strip())
+                            tcp_candidate = tcp_headers[j].strip()
+                            if tcp_candidate not in result["two_candidate_preferred"]:
+                                result["two_candidate_preferred"][tcp_candidate] = {}
+                            result["two_candidate_preferred"][tcp_candidate][candidate_info] = tcp_votes
+                        except ValueError:
+                            pass
+    
+    return result
+
 
 FLASK_APP_URL = os.environ.get("FLASK_APP_URL", "http://localhost:5000/api/notify")
 
@@ -75,13 +183,23 @@ async def scan_image(file: UploadFile = File(...)):
         if current_row:
             extracted_rows.append(current_row)
         
+        # Extract structured data from the tally sheet
+        tally_data = extract_tally_sheet_data(extracted_rows)
+        
         db = SessionLocal()
         try:
             image_url = f"temp/{file.filename}"
             
             db_result = Result(
                 image_url=image_url,
-                data={"rows": extracted_rows}
+                electorate=tally_data.get("electorate"),
+                booth_name=tally_data.get("booth_name"),
+                data={
+                    "raw_rows": extracted_rows,
+                    "primary_votes": tally_data.get("primary_votes"),
+                    "two_candidate_preferred": tally_data.get("two_candidate_preferred"),
+                    "totals": tally_data.get("totals")
+                }
             )
             db.add(db_result)
             db.commit()
@@ -91,7 +209,12 @@ async def scan_image(file: UploadFile = File(...)):
                 async with httpx.AsyncClient() as client:
                     await client.post(
                         FLASK_APP_URL,
-                        json={"result_id": db_result.id, "timestamp": db_result.timestamp.isoformat()}
+                        json={
+                            "result_id": db_result.id, 
+                            "timestamp": db_result.timestamp.isoformat(),
+                            "electorate": tally_data.get("electorate"),
+                            "booth_name": tally_data.get("booth_name")
+                        }
                     )
             except Exception as e:
                 logger.error(f"Failed to notify Flask app: {e}")
@@ -99,7 +222,11 @@ async def scan_image(file: UploadFile = File(...)):
             return {
                 "status": "success",
                 "result_id": db_result.id,
-                "rows": extracted_rows
+                "electorate": tally_data.get("electorate"),
+                "booth_name": tally_data.get("booth_name"),
+                "primary_votes": tally_data.get("primary_votes"),
+                "two_candidate_preferred": tally_data.get("two_candidate_preferred"),
+                "totals": tally_data.get("totals")
             }
         finally:
             db.close()
@@ -147,13 +274,24 @@ async def receive_sms(request: Request):
         if current_row:
             extracted_rows.append(current_row)
     
+    # Extract structured data from the tally sheet
+    tally_data = extract_tally_sheet_data(extracted_rows)
+    
     db = SessionLocal()
     try:
         image_url = media_urls[0] if media_urls else None
         
         db_result = Result(
             image_url=image_url,
-            data={"rows": extracted_rows, "text": text}
+            electorate=tally_data.get("electorate"),
+            booth_name=tally_data.get("booth_name"),
+            data={
+                "raw_rows": extracted_rows,
+                "primary_votes": tally_data.get("primary_votes"),
+                "two_candidate_preferred": tally_data.get("two_candidate_preferred"),
+                "totals": tally_data.get("totals"),
+                "text": text
+            }
         )
         db.add(db_result)
         db.commit()
@@ -163,12 +301,25 @@ async def receive_sms(request: Request):
             async with httpx.AsyncClient() as client:
                 await client.post(
                     FLASK_APP_URL,
-                    json={"result_id": db_result.id, "timestamp": db_result.timestamp.isoformat()}
+                    json={
+                        "result_id": db_result.id, 
+                        "timestamp": db_result.timestamp.isoformat(),
+                        "electorate": tally_data.get("electorate"),
+                        "booth_name": tally_data.get("booth_name")
+                    }
                 )
         except Exception as e:
             logger.error(f"Failed to notify Flask app: {e}")
         
-        return {"status": "received", "rows": extracted_rows, "result_id": db_result.id}
+        return {
+            "status": "received", 
+            "result_id": db_result.id,
+            "electorate": tally_data.get("electorate"),
+            "booth_name": tally_data.get("booth_name"),
+            "primary_votes": tally_data.get("primary_votes"),
+            "two_candidate_preferred": tally_data.get("two_candidate_preferred"),
+            "totals": tally_data.get("totals")
+        }
     finally:
         db.close()
 
