@@ -124,8 +124,9 @@ jobs:
                 external: true
             EOL
             
-            # Start the containers
-            docker-compose -f ~/amalfiResults/docker-compose.yml up -d
+            # Ensure latest images are pulled and start the containers
+            docker-compose -f ~/amalfiResults/docker-compose.yml pull
+            docker-compose -f ~/amalfiResults/docker-compose.yml up -d --force-recreate
             
             # Verify deployment
             docker ps
