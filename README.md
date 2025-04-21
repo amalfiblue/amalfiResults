@@ -1,97 +1,80 @@
 # Amalfi Results
 
-A system for scanning tally sheet images, extracting data, and displaying results.
-
-## Overview
-
-This repository contains two main components:
-
-1. **Flask App**: A web application for displaying tally sheet results
-2. **FastAPI Service**: A service for scanning images using OCR, extracting data, and storing results
-
-## Project Structure
-
-```
-amalfiResults/
-├── flask_app/           # Flask web application
-│   ├── app.py           # Main Flask application
-│   ├── templates/       # HTML templates
-│   └── static/          # Static assets (CSS, JS)
-├── fastapi_app/         # FastAPI service
-│   └── main.py          # Main FastAPI application
-├── docker-compose.yml   # Docker configuration
-└── README.md            # This file
-```
+A system for processing and visualizing election results, specifically designed for Australian elections.
 
 ## Features
 
-- Upload and scan tally sheet images using OCR
-- Extract structured data from images
-- Store results in a database
-- Display results in a web interface
-- Real-time notifications when new results are available
+- Upload tally sheet images directly or via SMS
+- Extract data using OCR
+- Visualize election results in real-time
+- Compare with historical data (2022 election)
+- Analyze Two-Candidate Preferred (TCP) counts
+- View results by electorate and polling booth
 
-## Setup and Installation
+## Project Structure
 
-### Prerequisites
+- `flask_app/`: Main web application for displaying results
+- `fastapi_app/`: Service for processing tally sheet images
+- `utils/`: Utility modules for data processing
+- `docker-compose.yml`: Docker Compose configuration
 
-- Python 3.9+
-- Poetry (for dependency management)
-- Docker and Docker Compose (optional, for containerized deployment)
+## Running Locally
 
-### Installation
+### Using Poetry
 
-1. Clone the repository:
-   ```
-   git clone https://github.com/yourusername/amalfiResults.git
-   cd amalfiResults
-   ```
+For the Flask app:
+```
+cd flask_app
+poetry install
+poetry run flask run --host 0.0.0.0 --port 5000
+```
 
-2. Install dependencies for both applications:
-   ```
-   cd flask_app
-   poetry install
-   
-   cd ../fastapi_app
-   poetry install
-   ```
+For the FastAPI app:
+```
+cd fastapi_app
+poetry install
+poetry run uvicorn main:app --host 0.0.0.0 --port 8000
+```
 
-3. Run the applications:
-   
-   **Flask App**:
-   ```
-   cd flask_app
-   poetry run python app.py
-   ```
-   
-   **FastAPI Service**:
-   ```
-   cd fastapi_app
-   poetry run python main.py
-   ```
-
-### Docker Deployment
-
-Alternatively, you can use Docker Compose to run both services:
+### Using Docker Compose
 
 ```
 docker-compose up -d
 ```
 
+## Deployment
+
+### Manual Deployment
+
+To manually pull and deploy the containers:
+
+```bash
+# Set your AWS credentials
+export AWS_ACCESS_KEY_ID=your_access_key
+export AWS_SECRET_ACCESS_KEY=your_secret_key
+export AWS_REGION=your_region
+
+# Run the deployment script
+./deploy.sh
+```
+
+The deployment script will:
+1. Log in to AWS ECR
+2. Pull the latest container images
+3. Create the required Docker network if it doesn't exist
+4. Stop any existing containers
+5. Start the containers with the latest images
+
+### Automated Deployment
+
+The repository includes GitHub Actions workflows for automated deployment to AWS ECR and EC2.
+See `.github/workflows/deploy.yml` for details.
+
 ## API Endpoints
 
-### FastAPI Service
+- Flask app: `http://localhost:5000`
+- FastAPI app: `http://localhost:8000`
 
-- `POST /scan-image`: Upload and scan an image file
-- `POST /inbound-sms`: Process SMS with attached media for scanning
+## Documentation
 
-### Flask App
-
-- `GET /`: Home page
-- `GET /results`: View all results
-- `GET /api/results`: Get results as JSON
-- `POST /api/notify`: Endpoint for FastAPI to notify of new results
-
-## License
-
-[MIT License](LICENSE)
+For more detailed documentation, see the `docs/` directory.
