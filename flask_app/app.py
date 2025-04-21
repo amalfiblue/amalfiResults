@@ -22,7 +22,7 @@ load_dotenv()
 
 app = Flask(__name__)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////app/results.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///results.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_key_for_amalfi_results')
 db = SQLAlchemy(app)
