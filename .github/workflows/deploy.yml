@@ -57,17 +57,18 @@ jobs:
     
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
+          audience: sts.amazonaws.com
 
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+        uses: aws-actions/amazon-ecr-login@v2
 
       - name: Deploy to EC2
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
@@ -80,6 +81,9 @@ jobs:
             
             # Stop and remove existing containers
             docker-compose -f ~/amalfiResults/docker-compose.yml down || true
+            
+            # Prune Docker system to free up disk space
+            docker system prune -af --volumes
             
             # Create or update docker-compose.yml
             mkdir -p ~/amalfiResults
