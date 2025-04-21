@@ -94,6 +94,7 @@ jobs:
               flask_app:
                 container_name: results_flask_app
                 image: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_FLASK }}:latest
+                pull_policy: always
                 environment:
                   - FLASK_APP=app.py
                   - FLASK_ENV=production
@@ -109,6 +110,7 @@ jobs:
               fastapi_app:
                 container_name: results_fastapi_app
                 image: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_FASTAPI }}:latest
+                pull_policy: always
                 environment:
                   - FLASK_APP_URL=http://flask_app:5000/api/notify
                 restart: always
