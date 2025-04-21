@@ -22,7 +22,7 @@ load_dotenv()
 
 app = Flask(__name__)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////app/results.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///results.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_key_for_amalfi_results')
 db = SQLAlchemy(app)
@@ -636,6 +636,177 @@ def dashboard_join(data):
     if 'electorate' in data:
         app.logger.info(f"Client {request.sid} joined electorate: {data['electorate']}")
         socketio.emit('status', {'status': 'connected', 'electorate': data['electorate']}, room=request.sid)
+
+@app.route('/admin/polling-places', methods=['GET'])
+@app.route('/admin/polling-places/<division>', methods=['GET'])
+def admin_polling_places(division=None):
+    """Admin page to view polling places for a division and manage results"""
+    if not app.config.get('IS_ADMIN', False):
+        flash("Admin access required", "error")
+        return redirect(url_for('get_dashboard'))
+    
+    electorates = get_all_electorates()
+    
+    if not division and electorates:
+        division = electorates[0]
+    
+    polling_places = []
+    if division:
+        from utils.booth_results_processor import get_booth_results_for_division
+        booth_results = get_booth_results_for_division(division)
+        polling_places = booth_results
+    
+    # Get current results for this division
+    current_results = Result.query.filter_by(electorate=division).order_by(Result.timestamp.desc()).all()
+    
+    unreviewed_results = [r for r in current_results if not (r.data and r.data.get('reviewed'))]
+    
+    messages = []
+    for category, message in get_flashed_messages(with_categories=True):
+        messages.append((category, message))
+    
+    return render_template(
+        'admin_polling_places.html',
+        division=division,
+        electorates=electorates,
+        polling_places=polling_places,
+        current_results=current_results,
+        unreviewed_results=unreviewed_results,
+        messages=messages
+    )
+
+@app.route('/admin/reset-results', methods=['POST'])
+def admin_reset_results():
+    """Reset results for testing purposes"""
+    if not app.config.get('IS_ADMIN', False):
+        flash("Admin access required", "error")
+        return redirect(url_for('get_dashboard'))
+    
+    division = request.form.get('division')
+    booth_name = request.form.get('booth_name')
+    all_results = request.form.get('all_results') == 'true'
+    
+    try:
+        if all_results:
+            Result.query.delete()
+            flash("All results have been reset", "success")
+        elif division and booth_name:
+            Result.query.filter_by(electorate=division, booth_name=booth_name).delete()
+            flash(f"Results for {booth_name} in {division} have been reset", "success")
+        elif division:
+            Result.query.filter_by(electorate=division).delete()
+            flash(f"Results for {division} have been reset", "success")
+        else:
+            flash("Please specify what results to reset", "error")
+            return redirect(url_for('admin_polling_places', division=division))
+            
+        db.session.commit()
+        
+        if division:
+            socketio.emit('update', {'electorate': division}, namespace='/dashboard')
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Error resetting results: {e}")
+        flash(f"Error resetting results: {str(e)}", "error")
+    
+    return redirect(url_for('admin_polling_places', division=division))
+
+@app.route('/admin/review-result/<int:result_id>', methods=['GET', 'POST'])
+def admin_review_result(result_id):
+    """Admin page to review and approve a result"""
+    if not app.config.get('IS_ADMIN', False):
+        flash("Admin access required", "error")
+        return redirect(url_for('get_dashboard'))
+    
+    result = Result.query.get_or_404(result_id)
+    
+    if request.method == 'POST':
+        action = request.form.get('action')
+        
+        try:
+            if action == 'approve':
+                if not result.data:
+                    result.data = {}
+                result.data['reviewed'] = True
+                result.data['approved'] = True
+                result.data['reviewed_at'] = datetime.utcnow().isoformat()
+                db.session.commit()
+                flash("Result approved successfully", "success")
+                
+                socketio.emit('update', {'electorate': result.electorate}, namespace='/dashboard')
+                
+                return redirect(url_for('admin_polling_places', division=result.electorate))
+            elif action == 'reject':
+                if not result.data:
+                    result.data = {}
+                result.data['reviewed'] = True
+                result.data['approved'] = False
+                result.data['reviewed_at'] = datetime.utcnow().isoformat()
+                db.session.commit()
+                flash("Result rejected", "warning")
+                return redirect(url_for('admin_polling_places', division=result.electorate))
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f"Error reviewing result: {e}")
+            flash(f"Error reviewing result: {str(e)}", "error")
+    
+    messages = []
+    for category, message in get_flashed_messages(with_categories=True):
+        messages.append((category, message))
+    
+    return render_template(
+        'admin_review_result.html',
+        result=result,
+        messages=messages
+    )
+
+@app.route('/admin/panel', methods=['GET'])
+@app.route('/admin/panel/<division>', methods=['GET'])
+def admin_panel(division=None):
+    """Admin panel that uses FastAPI endpoints for actions"""
+    if not app.config.get('IS_ADMIN', False):
+        flash("Admin access required", "error")
+        return redirect(url_for('get_dashboard'))
+    
+    electorates = get_all_electorates()
+    
+    if not division and electorates:
+        division = electorates[0]
+    
+    messages = []
+    for category, message in get_flashed_messages(with_categories=True):
+        messages.append((category, message))
+    
+    return render_template(
+        'admin_panel.html',
+        division=division,
+        electorates=electorates,
+        messages=messages
+    )
+
+@app.route('/api/notify', methods=['POST'])
+def api_notify():
+    """Endpoint for FastAPI to notify Flask app of updates"""
+    data = request.json
+    app.logger.info(f"Received notification from FastAPI: {data}")
+    
+    result_id = data.get('result_id')
+    electorate = data.get('electorate')
+    action = data.get('action')
+    
+    if electorate:
+        socketio.emit('update', {'electorate': electorate}, namespace='/dashboard')
+        
+        if action == 'review':
+            approved = data.get('approved', False)
+            status = 'approved' if approved else 'rejected'
+            socketio.emit('result_reviewed', {
+                'result_id': result_id,
+                'electorate': electorate,
+                'status': status
+            }, namespace='/dashboard')
+    
+    return jsonify({"status": "success"})
 
 if __name__ == '__main__':
     socketio.run(app, debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), allow_unsafe_werkzeug=True)

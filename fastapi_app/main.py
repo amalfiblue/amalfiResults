@@ -31,7 +31,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///data/results.db"
+SQLALCHEMY_DATABASE_URL = "sqlite:///results.db"
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -512,6 +512,167 @@ async def receive_sms(request: Request):
         }
     finally:
         db.close()
+
+@app.get("/admin/polling-places/{division}")
+async def get_polling_places(division: str):
+    """
+    Get polling places for a specific division
+    """
+    try:
+        from utils.booth_results_processor import get_booth_results_for_division
+        polling_places = get_booth_results_for_division(division)
+        return {"status": "success", "polling_places": polling_places}
+    except Exception as e:
+        logger.error(f"Error getting polling places for division {division}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/admin/reset-results")
+async def reset_results(request: Request):
+    """
+    Reset results for testing purposes
+    """
+    try:
+        data = await request.json()
+        division = data.get("division")
+        booth_name = data.get("booth_name")
+        all_results = data.get("all_results", False)
+        
+        db = SessionLocal()
+        try:
+            if all_results:
+                db.query(Result).delete()
+                message = "All results have been reset"
+            elif division and booth_name:
+                db.query(Result).filter_by(electorate=division, booth_name=booth_name).delete()
+                message = f"Results for {booth_name} in {division} have been reset"
+            elif division:
+                db.query(Result).filter_by(electorate=division).delete()
+                message = f"Results for {division} have been reset"
+            else:
+                return {"status": "error", "message": "Please specify what results to reset"}
+                
+            db.commit()
+            logger.info(message)
+            
+            return {"status": "success", "message": message}
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error resetting results: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/admin/unreviewed-results/{division}")
+async def get_unreviewed_results(division: str):
+    """
+    Get unreviewed results for a specific division
+    """
+    try:
+        db = SessionLocal()
+        try:
+            results = db.query(Result).filter_by(electorate=division).all()
+            unreviewed_results = [
+                {
+                    "id": r.id,
+                    "timestamp": r.timestamp.isoformat(),
+                    "electorate": r.electorate,
+                    "booth_name": r.booth_name,
+                    "image_url": r.image_url
+                }
+                for r in results 
+                if not (r.data and r.data.get("reviewed"))
+            ]
+            return {"status": "success", "unreviewed_results": unreviewed_results}
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error getting unreviewed results for division {division}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/admin/result/{result_id}")
+async def get_result(result_id: int):
+    """
+    Get a specific result by ID
+    """
+    try:
+        db = SessionLocal()
+        try:
+            result = db.query(Result).filter_by(id=result_id).first()
+            if not result:
+                raise HTTPException(status_code=404, detail=f"Result with ID {result_id} not found")
+            
+            return {
+                "status": "success",
+                "result": {
+                    "id": result.id,
+                    "timestamp": result.timestamp.isoformat(),
+                    "electorate": result.electorate,
+                    "booth_name": result.booth_name,
+                    "image_url": result.image_url,
+                    "data": result.data
+                }
+            }
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting result {result_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/admin/review-result/{result_id}")
+async def review_result(result_id: int, request: Request):
+    """
+    Review and approve/reject a result
+    """
+    try:
+        data = await request.json()
+        action = data.get("action")
+        
+        if action not in ["approve", "reject"]:
+            raise HTTPException(status_code=400, detail="Action must be 'approve' or 'reject'")
+        
+        db = SessionLocal()
+        try:
+            result = db.query(Result).filter_by(id=result_id).first()
+            if not result:
+                raise HTTPException(status_code=404, detail=f"Result with ID {result_id} not found")
+            
+            if not result.data:
+                result.data = {}
+            
+            result.data["reviewed"] = True
+            result.data["approved"] = (action == "approve")
+            result.data["reviewed_at"] = datetime.utcnow().isoformat()
+            
+            db.commit()
+            
+            message = "Result approved successfully" if action == "approve" else "Result rejected"
+            logger.info(f"{message} for result {result_id}")
+            
+            try:
+                async with httpx.AsyncClient() as client:
+                    await client.post(
+                        FLASK_APP_URL,
+                        json={
+                            "result_id": result.id, 
+                            "timestamp": result.timestamp.isoformat(),
+                            "electorate": result.electorate,
+                            "booth_name": result.booth_name,
+                            "action": "review",
+                            "approved": (action == "approve")
+                        }
+                    )
+            except Exception as e:
+                logger.error(f"Failed to notify Flask app: {e}")
+            
+            return {"status": "success", "message": message}
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error reviewing result {result_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
