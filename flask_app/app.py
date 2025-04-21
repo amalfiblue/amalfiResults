@@ -12,7 +12,6 @@ import requests
 import threading
 import time
 
-sys.path.append(str(Path(__file__).parent.parent))
 from utils.aec_data_downloader import download_and_process_aec_data, get_candidates_for_electorate
 from utils.booth_results_processor import process_and_load_booth_results, get_booth_results_for_division, get_booth_results_for_polling_place, calculate_swing
 
@@ -20,7 +19,7 @@ load_dotenv()
 
 app = Flask(__name__)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////home/ubuntu/repos/amalfiResults/results.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////app/results.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_key_for_amalfi_results')
 db = SQLAlchemy(app)
