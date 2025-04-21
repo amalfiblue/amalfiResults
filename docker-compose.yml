@@ -2,11 +2,11 @@ version: '3.8'
 
 services:
   flask_app:
+    container_name: results_flask_app
+    restart: always
     build:
       context: ./flask_app
       dockerfile: Dockerfile
-    ports:
-      - "5000:5000"
     environment:
       - FLASK_APP=app.py
       - FLASK_ENV=production
@@ -17,20 +17,24 @@ services:
       - fastapi_app
     networks:
       - amalfi_network
+    expose:
+      - 5000
 
   fastapi_app:
+    container_name: results_fastapi_app
+    restart: always
     build:
       context: ./fastapi_app
       dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
     environment:
       - FLASK_APP_URL=http://flask_app:5000/api/notify
     volumes:
       - ./fastapi_app:/app
     networks:
       - amalfi_network
+    expose:
+      - 8000
 
 networks:
   amalfi_network:
-    driver: bridge
+    external: true
