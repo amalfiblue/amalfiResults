@@ -81,6 +81,9 @@ jobs:
             # Stop and remove existing containers
             docker-compose -f ~/amalfiResults/docker-compose.yml down || true
             
+            # Prune Docker system to free up disk space
+            docker system prune -af --volumes
+            
             # Create or update docker-compose.yml
             mkdir -p ~/amalfiResults
             cat > ~/amalfiResults/docker-compose.yml << 'EOL'
