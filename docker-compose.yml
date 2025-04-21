@@ -30,6 +30,7 @@ services:
       - FLASK_APP_URL=http://flask_app:5000/api/notify
     volumes:
       - ./fastapi_app:/app
+      - fastapi_data:/app/data
     networks:
       - amalfi_network
     expose:
@@ -38,3 +39,7 @@ services:
 networks:
   amalfi_network:
     external: true
+
+volumes:
+  fastapi_data:
+    driver: local
