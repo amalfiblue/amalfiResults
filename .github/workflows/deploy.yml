@@ -74,13 +74,16 @@ jobs:
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            # Pull the latest images
+            # Force pull the latest images
             aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
-            docker pull ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_FLASK }}:latest
-            docker pull ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_FASTAPI }}:latest
+            docker pull ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_FLASK }}:latest --quiet
+            docker pull ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_FASTAPI }}:latest --quiet
             
             # Stop and remove existing containers
             docker-compose -f ~/amalfiResults/docker-compose.yml down || true
+            
+            # Create amalfi_network if it doesn't exist
+            docker network inspect amalfi_network >/dev/null 2>&1 || docker network create amalfi_network
             
             # Prune Docker system to free up disk space
             docker system prune -af --volumes
@@ -124,9 +127,9 @@ jobs:
                 external: true
             EOL
             
-            # Ensure latest images are pulled and start the containers
-            docker-compose -f ~/amalfiResults/docker-compose.yml pull
-            docker-compose -f ~/amalfiResults/docker-compose.yml up -d --force-recreate
+            # Ensure latest images are pulled and start the containers with force
+            docker-compose -f ~/amalfiResults/docker-compose.yml pull --ignore-pull-failures
+            docker-compose -f ~/amalfiResults/docker-compose.yml up -d --force-recreate --remove-orphans
             
             # Verify deployment
             docker ps
