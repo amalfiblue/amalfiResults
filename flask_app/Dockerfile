@@ -2,8 +2,8 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# Install Poetry
-RUN pip install poetry==1.5.1
+# Install Poetry and Gunicorn
+RUN pip install poetry==1.5.1 gunicorn==21.2.0
 
 # Copy Poetry configuration
 COPY pyproject.toml /app/
@@ -21,5 +21,5 @@ COPY . /app/
 # Expose port
 EXPOSE 5000
 
-# Run the application
-CMD ["python", "app.py"]
+# Run the application with Gunicorn
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "app:app"]
