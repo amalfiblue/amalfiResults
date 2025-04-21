@@ -84,24 +84,38 @@ jobs:
             # Create or update docker-compose.yml
             mkdir -p ~/amalfiResults
             cat > ~/amalfiResults/docker-compose.yml << 'EOL'
-            version: '3'
+            version: '3.8'
             
             services:
-              flask-app:
+              flask_app:
+                container_name: results_flask_app
                 image: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_FLASK }}:latest
-                ports:
-                  - "5000:5000"
                 environment:
-                  - FASTAPI_URL=http://fastapi-app:8000
+                  - FLASK_APP=app.py
+                  - FLASK_ENV=production
+                  - FASTAPI_URL=http://fastapi_app:8000
                 restart: always
                 depends_on:
-                  - fastapi-app
+                  - fastapi_app
+                networks:
+                  - amalfi_network
+                expose:
+                  - 5000
             
-              fastapi-app:
+              fastapi_app:
+                container_name: results_fastapi_app
                 image: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_FASTAPI }}:latest
-                ports:
-                  - "8000:8000"
+                environment:
+                  - FLASK_APP_URL=http://flask_app:5000/api/notify
                 restart: always
+                networks:
+                  - amalfi_network
+                expose:
+                  - 8000
+                  
+            networks:
+              amalfi_network:
+                external: true
             EOL
             
             # Start the containers
