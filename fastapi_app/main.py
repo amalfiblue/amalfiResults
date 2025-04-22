@@ -899,7 +899,26 @@ async def api_electorates():
     Get all unique electorates from the candidates table
     """
     try:
-        conn = sqlite3.connect(SQLALCHEMY_DATABASE_URL.replace('sqlite://', ''))
+        db_path = SQLALCHEMY_DATABASE_URL.replace('sqlite://', '')
+        logger.info(f"Connecting to database at: {db_path}")
+        logger.info(f"Current working directory: {os.getcwd()}")
+        
+        db_file = Path(db_path)
+        if db_file.exists():
+            logger.info(f"Database file exists: {db_file}")
+            logger.info(f"File permissions: {oct(os.stat(db_file).st_mode)}")
+            logger.info(f"File owner: {os.stat(db_file).st_uid}")
+        else:
+            logger.warning(f"Database file does not exist: {db_file}")
+            parent_dir = db_file.parent
+            if parent_dir.exists():
+                logger.info(f"Parent directory exists: {parent_dir}")
+                logger.info(f"Directory permissions: {oct(os.stat(parent_dir).st_mode)}")
+                logger.info(f"Directory contents: {list(parent_dir.iterdir())}")
+            else:
+                logger.warning(f"Parent directory does not exist: {parent_dir}")
+        
+        conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
         cursor.execute("SELECT DISTINCT electorate FROM candidates ORDER BY electorate")
@@ -912,6 +931,10 @@ async def api_electorates():
         }
     except Exception as e:
         logger.error(f"Error getting electorates: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error details: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/candidates")
@@ -920,7 +943,26 @@ async def api_candidates():
     Get all candidates
     """
     try:
-        conn = sqlite3.connect(SQLALCHEMY_DATABASE_URL.replace('sqlite://', ''))
+        db_path = SQLALCHEMY_DATABASE_URL.replace('sqlite://', '')
+        logger.info(f"Connecting to database at: {db_path}")
+        logger.info(f"Current working directory: {os.getcwd()}")
+        
+        db_file = Path(db_path)
+        if db_file.exists():
+            logger.info(f"Database file exists: {db_file}")
+            logger.info(f"File permissions: {oct(os.stat(db_file).st_mode)}")
+            logger.info(f"File owner: {os.stat(db_file).st_uid}")
+        else:
+            logger.warning(f"Database file does not exist: {db_file}")
+            parent_dir = db_file.parent
+            if parent_dir.exists():
+                logger.info(f"Parent directory exists: {parent_dir}")
+                logger.info(f"Directory permissions: {oct(os.stat(parent_dir).st_mode)}")
+                logger.info(f"Directory contents: {list(parent_dir.iterdir())}")
+            else:
+                logger.warning(f"Parent directory does not exist: {parent_dir}")
+        
+        conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
         cursor.execute("SELECT * FROM candidates ORDER BY electorate, surname")
@@ -934,6 +976,10 @@ async def api_candidates():
         }
     except Exception as e:
         logger.error(f"Error getting candidates: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error details: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/candidates/{electorate}")
