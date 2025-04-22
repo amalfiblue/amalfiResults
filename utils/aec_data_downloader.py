@@ -24,7 +24,10 @@ AEC_SENATE_CANDIDATES_URL = "https://aec.gov.au/election/files/data/senate-candi
 AEC_HOUSE_CANDIDATES_URL = "https://aec.gov.au/election/files/data/house-candidates.csv"
 
 DATA_DIR = Path(__file__).parent.parent / "data"
-DB_PATH = Path("/app/data/results.db")
+is_docker = os.path.exists("/.dockerenv") or os.path.isdir("/app/data")
+data_dir_path = "/app/data" if is_docker else "./data"
+DB_PATH = Path(f"{data_dir_path}/results.db")
+logger.info(f"Using database path: {DB_PATH}")
 
 
 def ensure_data_dir() -> None:

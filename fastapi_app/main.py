@@ -88,6 +88,21 @@ class ResultResponse(BaseModel):
     data: Optional[Dict[str, Any]] = None
 
 Base.metadata.create_all(bind=engine)
+
+# Import and call the function to create the candidates table
+import sys
+sys.path.append(str(Path(__file__).parent.parent))
+from utils.aec_data_downloader import create_candidates_table
+
+try:
+    logger.info("Creating candidates table if it doesn't exist")
+    create_candidates_table()
+    logger.info("Candidates table creation completed")
+except Exception as e:
+    logger.error(f"Error creating candidates table: {e}")
+    import traceback
+    logger.error(f"Traceback: {traceback.format_exc()}")
+
 def extract_tally_sheet_data(extracted_rows: List[List[str]]) -> Dict[str, Any]:
     """
     Extract structured data from tally sheet rows
