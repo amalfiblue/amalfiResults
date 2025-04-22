@@ -27,7 +27,7 @@ services:
       context: ./fastapi_app
       dockerfile: Dockerfile
     environment:
-      - FLASK_APP_URL=http://flask_app:5000/api/notify
+      - FLASK_APP_URL=http://results_flask_app:5000/api/notify
     volumes:
       - ./fastapi_app:/app
       - fastapi_data:/app/data
