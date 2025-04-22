@@ -20,7 +20,7 @@ from utils.booth_results_processor import process_and_load_booth_results, get_bo
 
 load_dotenv()
 
-FASTAPI_URL = os.environ.get('FASTAPI_URL', 'http://localhost:8000')
+FASTAPI_URL = os.environ.get('FASTAPI_URL', 'http://results_fastapi_app:8000')
 
 def api_call(endpoint, method='get', data=None, params=None):
     """Make an API call to the FastAPI service"""
@@ -44,7 +44,7 @@ def api_call(endpoint, method='get', data=None, params=None):
 
 app = Flask(__name__)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////app/results.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///results.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_key_for_amalfi_results')
 db = SQLAlchemy(app)
@@ -170,7 +170,8 @@ def get_last_updated_time():
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    """Redirect to dashboard as the default landing page"""
+    return redirect(url_for('get_dashboard'))
 
 @app.route('/results')
 def get_results():
@@ -188,7 +189,12 @@ def get_results():
                 data=r["data"]
             )
             results.append(result)
-    return render_template('results.html', results=results)
+    
+    messages = []
+    for category, message in get_flashed_messages(with_categories=True):
+        messages.append((category, message))
+    
+    return render_template('results_new.html', results=results, messages=messages)
 
 @app.route('/results/<int:result_id>')
 def get_result_detail(result_id):
@@ -204,9 +210,15 @@ def get_result_detail(result_id):
             booth_name=r["booth_name"],
             data=r["data"]
         )
-        return render_template('result_detail.html', result=result)
+        
+        messages = []
+        for category, message in get_flashed_messages(with_categories=True):
+            messages.append((category, message))
+        
+        return render_template('result_detail_new.html', result=result, messages=messages)
     else:
         return render_template('error.html', error=f"Result not found: {response.get('message')}")
+
 
 @app.route('/candidates')
 def get_candidates_page():
@@ -217,13 +229,18 @@ def get_candidates_page():
     electorates = get_all_electorates()
     last_updated = get_last_updated_time()
     
+    messages = []
+    for category, message in get_flashed_messages(with_categories=True):
+        messages.append((category, message))
+    
     return render_template(
-        'candidates.html', 
+        'candidates_new.html', 
         candidates=candidates_data, 
         electorates=electorates,
         electorate=electorate,
         candidate_type=candidate_type,
-        last_updated=last_updated
+        last_updated=last_updated,
+        messages=messages
     )
 
 @app.route('/update-aec-data')
@@ -314,14 +331,19 @@ def get_booth_results_page():
                             booth_result
                         )
     
+    messages = []
+    for category, message in get_flashed_messages(with_categories=True):
+        messages.append((category, message))
+    
     return render_template(
-        'booth_results.html',
+        'booth_results_new.html',
         booth_results=booth_results,
         current_results=current_results,
         electorates=electorates,
         electorate=electorate,
         booth=booth,
-        last_updated=last_updated
+        last_updated=last_updated,
+        messages=messages
     )
 
 @app.route('/update-booth-data')
@@ -370,8 +392,14 @@ def get_dashboard(electorate=None):
         historical_booths = get_booth_results_for_division(e)
         total_booths[e] = len(historical_booths) if historical_booths else 0
     
+    if not electorate:
+        electorate = session.get('default_division')
+        
     if not electorate and electorates:
         electorate = electorates[0]
+        
+    if electorate:
+        session['last_viewed_division'] = electorate
     
     # Get booth results for the selected electorate
     booth_results = []
@@ -526,11 +554,14 @@ def admin_tcp_candidates(electorate):
         messages.append((category, message))
     
     return render_template(
-        'admin_tcp_candidates.html',
+        'admin_tcp_candidates_new.html',
         electorate=electorate,
         candidates=candidates,
         tcp_candidates=tcp_candidate_names,
-        messages=messages
+        messages=messages,
+        electorates=get_all_electorates(),
+        selected_electorate=electorate,
+        is_admin=app.config.get('IS_ADMIN', False)
     )
 
 @app.route('/api/dashboard/<electorate>')
@@ -762,9 +793,12 @@ def admin_review_result(result_id):
         messages.append((category, message))
     
     return render_template(
-        'admin_review_result.html',
+        'admin_review_result_new.html',
         result=result,
-        messages=messages
+        messages=messages,
+        electorates=get_all_electorates(),
+        selected_electorate=result.electorate,
+        is_admin=app.config.get('IS_ADMIN', False)
     )
 
 @app.route('/admin/panel', methods=['GET'])
@@ -785,10 +819,12 @@ def admin_panel(division=None):
         messages.append((category, message))
     
     return render_template(
-        'admin_panel.html',
+        'admin_panel_new.html',
         division=division,
         electorates=electorates,
-        messages=messages
+        messages=messages,
+        selected_electorate=division,
+        is_admin=app.config.get('IS_ADMIN', False)
     )
 
 @app.route('/api/notify', methods=['POST'])
@@ -813,6 +849,18 @@ def api_notify():
                 'status': status
             }, namespace='/dashboard')
     
+
+@app.route('/set-default-division/<division>')
+def set_default_division(division):
+    """Set the default division for the user session"""
+    next_url = request.args.get('next', url_for('get_dashboard'))
+    
+    if division:
+        session['default_division'] = division
+        flash(f"Default division set to {division}", "success")
+    
+    return redirect(next_url)
+
     return jsonify({"status": "success"})
 
 if __name__ == '__main__':

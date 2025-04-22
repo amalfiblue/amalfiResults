@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+
+{% block title %}Review Result - Amalfi Results{% endblock %}
+
+{% block content %}
+    <div class="row">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="/">Home</a></li>
+                    <li class="breadcrumb-item"><a href="/admin/polling-places">Admin Polling Places</a></li>
+                    <li class="breadcrumb-item"><a href="/admin/polling-places/{{ result.electorate }}">{{ result.electorate }}</a></li>
+                    <li class="breadcrumb-item active">Review Result #{{ result.id }}</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h2 class="card-title">Review Tally Sheet Result</h2>
+                    <span class="badge bg-warning">Pending Review</span>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <h4>Metadata</h4>
+                            <table class="table">
+                                <tbody>
+                                    <tr>
+                                        <th>ID</th>
+                                        <td>{{ result.id }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Timestamp</th>
+                                        <td>{{ result.timestamp }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Electorate</th>
+                                        <td>{{ result.electorate or 'Unknown' }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Booth Name</th>
+                                        <td>{{ result.booth_name or 'Unknown' }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="col-md-6 text-end">
+                            <form method="post" action="/admin/review-result/{{ result.id }}" id="reviewForm">
+                                <input type="hidden" name="action" id="actionInput" value="">
+                                <button type="button" class="btn btn-success me-2" onclick="submitForm('approve')">
+                                    Approve Result
+                                </button>
+                                <button type="button" class="btn btn-danger" onclick="submitForm('reject')">
+                                    Reject Result
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <!-- Original Image Column -->
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h4>Original Tally Sheet Image</h4>
+                                </div>
+                                <div class="card-body text-center">
+                                    {% if result.image_url %}
+                                        <div class="mb-3">
+                                            <a href="{{ result.image_url }}" target="_blank" class="btn btn-outline-primary mb-3">
+                                                Open Image in New Tab
+                                            </a>
+                                        </div>
+                                        <img src="{{ result.image_url }}" alt="Tally Sheet" class="img-fluid border" style="max-height: 800px;">
+                                    {% else %}
+                                        <div class="alert alert-warning">
+                                            No image available for this result
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- OCR Results Column -->
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h4>Extracted Data</h4>
+                                </div>
+                                <div class="card-body">
+                                    <!-- Primary Votes Section -->
+                                    <h5>Primary Votes</h5>
+                                    {% set primary_votes = result.get_primary_votes() %}
+                                    {% if primary_votes %}
+                                        <div class="table-responsive mb-4">
+                                            <table class="table table-bordered">
+                                                <thead class="table-light">
+                                                    <tr>
+                                                        <th>Candidate</th>
+                                                        <th>Primary Votes</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {% for candidate, votes in primary_votes.items() %}
+                                                    <tr>
+                                                        <td>{{ candidate }}</td>
+                                                        <td>{{ votes }}</td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    {% else %}
+                                        <div class="alert alert-info mb-4">No primary vote data available.</div>
+                                    {% endif %}
+                                    
+                                    <!-- TCP Votes Section -->
+                                    <h5>Two-Candidate Preferred</h5>
+                                    {% set tcp_votes = result.get_tcp_votes() %}
+                                    {% if tcp_votes %}
+                                        <div class="table-responsive mb-4">
+                                            <table class="table table-bordered">
+                                                <thead class="table-light">
+                                                    <tr>
+                                                        <th>Candidate</th>
+                                                        {% for tcp_candidate in tcp_votes.keys() %}
+                                                            <th>{{ tcp_candidate }}</th>
+                                                        {% endfor %}
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {% set all_candidates = [] %}
+                                                    {% for tcp_candidate, votes in tcp_votes.items() %}
+                                                        {% for candidate in votes.keys() %}
+                                                            {% if candidate not in all_candidates %}
+                                                                {% set _ = all_candidates.append(candidate) %}
+                                                            {% endif %}
+                                                        {% endfor %}
+                                                    {% endfor %}
+                                                    
+                                                    {% for candidate in all_candidates %}
+                                                    <tr>
+                                                        <td>{{ candidate }}</td>
+                                                        {% for tcp_candidate in tcp_votes.keys() %}
+                                                            <td>{{ tcp_votes[tcp_candidate].get(candidate, '-') }}</td>
+                                                        {% endfor %}
+                                                    </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    {% else %}
+                                        <div class="alert alert-info mb-4">No two-candidate preferred data available.</div>
+                                    {% endif %}
+                                    
+                                    <!-- Vote Totals Section -->
+                                    <h5>Vote Totals</h5>
+                                    {% set totals = result.get_totals() %}
+                                    <div class="table-responsive">
+                                        <table class="table table-bordered">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th>Category</th>
+                                                    <th>Count</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    <td>Formal Votes</td>
+                                                    <td>{{ totals.formal or 'Unknown' }}</td>
+                                                </tr>
+                                                <tr>
+                                                    <td>Informal Votes</td>
+                                                    <td>{{ totals.informal or 'Unknown' }}</td>
+                                                </tr>
+                                                <tr>
+                                                    <td>Total Votes</td>
+                                                    <td>{{ totals.total or 'Unknown' }}</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function submitForm(action) {
+        const confirmMessage = action === 'approve' 
+            ? 'Are you sure you want to approve this result?' 
+            : 'Are you sure you want to reject this result?';
+            
+        if (confirm(confirmMessage)) {
+            document.getElementById('actionInput').value = action;
+            document.getElementById('reviewForm').submit();
+        }
+    }
+</script>
+{% endblock %}

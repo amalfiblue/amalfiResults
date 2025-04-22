@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+
+{% block title %}Tally Result Detail - Amalfi Results{% endblock %}
+
+{% block content %}
+    <div class="row">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="/">Home</a></li>
+                    <li class="breadcrumb-item"><a href="/results">Results</a></li>
+                    <li class="breadcrumb-item active">Result #{{ result.id }}</li>
+                </ol>
+            </nav>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h2 class="card-title">Tally Sheet Result</h2>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h3>Metadata</h3>
+                            <table class="table">
+                                <tbody>
+                                    <tr>
+                                        <th>ID</th>
+                                        <td>{{ result.id }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Timestamp</th>
+                                        <td>{{ result.timestamp }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Electorate</th>
+                                        <td>{{ result.electorate or 'Unknown' }}</td>
+                                    </tr>
+                                    <tr>
+                                        <th>Booth Name</th>
+                                        <td>{{ result.booth_name or 'Unknown' }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="col-md-6">
+                            {% if result.image_url %}
+                            <div class="text-center">
+                                <h3>Original Image</h3>
+                                <a href="{{ result.image_url }}" target="_blank" class="btn btn-outline-primary">View Original Image</a>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h3 class="card-title">Primary Votes</h3>
+                </div>
+                <div class="card-body">
+                    {% set primary_votes = result.get_primary_votes() %}
+                    {% if primary_votes %}
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Candidate</th>
+                                        <th>Primary Votes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for candidate, votes in primary_votes.items() %}
+                                    <tr>
+                                        <td>{{ candidate }}</td>
+                                        <td>{{ votes }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-info">No primary vote data available.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h3 class="card-title">Two-Candidate Preferred</h3>
+                </div>
+                <div class="card-body">
+                    {% set tcp_votes = result.get_tcp_votes() %}
+                    {% if tcp_votes %}
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Candidate</th>
+                                        {% for tcp_candidate in tcp_votes.keys() %}
+                                            <th>{{ tcp_candidate }}</th>
+                                        {% endfor %}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% set all_candidates = [] %}
+                                    {% for tcp_candidate, votes in tcp_votes.items() %}
+                                        {% for candidate in votes.keys() %}
+                                            {% if candidate not in all_candidates %}
+                                                {% set _ = all_candidates.append(candidate) %}
+                                            {% endif %}
+                                        {% endfor %}
+                                    {% endfor %}
+                                    
+                                    {% for candidate in all_candidates %}
+                                    <tr>
+                                        <td>{{ candidate }}</td>
+                                        {% for tcp_candidate in tcp_votes.keys() %}
+                                            <td>{{ tcp_votes[tcp_candidate].get(candidate, '-') }}</td>
+                                        {% endfor %}
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-info">No two-candidate preferred data available.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h3 class="card-title">Vote Totals</h3>
+                </div>
+                <div class="card-body">
+                    {% set totals = result.get_totals() %}
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Category</th>
+                                    <th>Count</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Formal Votes</td>
+                                    <td>{{ totals.formal or 'Unknown' }}</td>
+                                </tr>
+                                <tr>
+                                    <td>Informal Votes</td>
+                                    <td>{{ totals.informal or 'Unknown' }}</td>
+                                </tr>
+                                <tr>
+                                    <td>Total Votes</td>
+                                    <td>{{ totals.total or 'Unknown' }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h3 class="card-title">Raw Data</h3>
+                </div>
+                <div class="card-body">
+                    <button class="btn btn-outline-secondary mb-3" type="button" data-bs-toggle="collapse" data-bs-target="#rawData">
+                        Show Raw Data
+                    </button>
+                    <div class="collapse" id="rawData">
+                        <div class="card card-body">
+                            <pre>{{ result.data | tojson(indent=2) }}</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+{% endblock %}

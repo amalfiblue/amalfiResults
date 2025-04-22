@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block title %}Booth Results - Amalfi Results{% endblock %}
+
+{% block content %}
+    <h1>Booth Results and Swings</h1>
+    
+    <div class="row mt-4">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Filter Results</h5>
+                </div>
+                <div class="card-body">
+                    <form method="get" action="/booth-results">
+                        <div class="mb-3">
+                            <label for="electorate" class="form-label">Electorate</label>
+                            <select class="form-select" id="electorate" name="electorate">
+                                <option value="">All Electorates</option>
+                                {% for e in electorates %}
+                                <option value="{{ e }}" {% if electorate == e %}selected{% endif %}>{{ e }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="booth" class="form-label">Polling Place/Booth</label>
+                            <input type="text" class="form-control" id="booth" name="booth" value="{{ booth }}">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Filter</button>
+                        <a href="/booth-results" class="btn btn-outline-secondary">Reset</a>
+                    </form>
+                </div>
+            </div>
+            
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">2022 Election Data</h5>
+                </div>
+                <div class="card-body">
+                    <p>Last updated: {{ last_updated }}</p>
+                    <a href="/update-booth-data" class="btn btn-outline-primary">Update Booth Data</a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Booth Results</h5>
+                </div>
+                <div class="card-body">
+                    {% if booth_results %}
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Electorate</th>
+                                        <th>Polling Place</th>
+                                        <th>Liberal/National %</th>
+                                        <th>Labor %</th>
+                                        <th>Total Votes</th>
+                                        <th>2022 Swing</th>
+                                        <th>Current Swing</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for result in booth_results %}
+                                    <tr>
+                                        <td>{{ result.division_name }}</td>
+                                        <td>{{ result.polling_place_name }}</td>
+                                        <td>{{ result.liberal_national_percentage|round(2) }}%</td>
+                                        <td>{{ result.labor_percentage|round(2) }}%</td>
+                                        <td>{{ result.total_votes }}</td>
+                                        <td>
+                                            {% if result.swing > 0 %}
+                                            <span class="text-danger">+{{ result.swing|round(2) }}% to ALP</span>
+                                            {% elif result.swing < 0 %}
+                                            <span class="text-primary">{{ result.swing|round(2) }}% to LNP</span>
+                                            {% else %}
+                                            No swing
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if result.current_swing is defined %}
+                                                {% if result.current_swing > 0 %}
+                                                <span class="text-danger">+{{ result.current_swing|round(2) }}% to ALP</span>
+                                                {% elif result.current_swing < 0 %}
+                                                <span class="text-primary">{{ result.current_swing|round(2) }}% to LNP</span>
+                                                {% else %}
+                                                No swing
+                                                {% endif %}
+                                            {% else %}
+                                            No current data
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-info">
+                            No booth results found for the selected filters. Please try different criteria.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+            
+            {% if current_results %}
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Current Results</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Timestamp</th>
+                                    <th>Electorate</th>
+                                    <th>Booth</th>
+                                    <th>Details</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for result in current_results %}
+                                <tr>
+                                    <td>{{ result.id }}</td>
+                                    <td>{{ result.timestamp }}</td>
+                                    <td>{{ result.electorate }}</td>
+                                    <td>{{ result.booth_name }}</td>
+                                    <td>
+                                        <a href="/results/{{ result.id }}" class="btn btn-sm btn-primary">
+                                            View Details
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+{% endblock %}
