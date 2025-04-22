@@ -606,20 +606,37 @@ async def load_reference_data():
     try:
         logger.info("Loading all reference data...")
         
-        from utils.aec_data_downloader import download_and_process_aec_data
-        candidates_result = download_and_process_aec_data()
+        import sys
+        import os
+        from pathlib import Path
         
-        from utils.booth_results_processor import process_and_load_booth_results
-        booth_results = process_and_load_booth_results()
+        # Get the parent directory of the current file's directory
+        parent_dir = str(Path(__file__).parent.parent)
+        if parent_dir not in sys.path:
+            logger.info(f"Adding parent directory to Python path: {parent_dir}")
+            sys.path.append(parent_dir)
         
-        return {
-            "status": "success", 
-            "message": "Reference data loaded successfully",
-            "details": {
-                "candidates_loaded": candidates_result,
-                "booth_results_loaded": booth_results
+        try:
+            from utils.aec_data_downloader import download_and_process_aec_data
+            candidates_result = download_and_process_aec_data()
+            
+            from utils.booth_results_processor import process_and_load_booth_results
+            booth_results = process_and_load_booth_results()
+            
+            return {
+                "status": "success", 
+                "message": "Reference data loaded successfully",
+                "details": {
+                    "candidates_loaded": candidates_result,
+                    "booth_results_loaded": booth_results
+                }
             }
-        }
+        except ImportError as ie:
+            logger.error(f"Import error: {ie}")
+            logger.info(f"Current sys.path: {sys.path}")
+            logger.info(f"Current working directory: {os.getcwd()}")
+            logger.info(f"Directory contents: {os.listdir(parent_dir)}")
+            raise HTTPException(status_code=500, detail=f"Import error: {str(ie)}")
     except Exception as e:
         logger.error(f"Error loading reference data: {e}")
         import traceback
@@ -632,6 +649,15 @@ async def get_polling_places(division: str):
     Get polling places for a specific division
     """
     try:
+        import sys
+        from pathlib import Path
+        
+        # Get the parent directory of the current file's directory
+        parent_dir = str(Path(__file__).parent.parent)
+        if parent_dir not in sys.path:
+            logger.info(f"Adding parent directory to Python path: {parent_dir}")
+            sys.path.append(parent_dir)
+            
         from utils.booth_results_processor import get_booth_results_for_division
         polling_places = get_booth_results_for_division(division)
         return {"status": "success", "polling_places": polling_places}
