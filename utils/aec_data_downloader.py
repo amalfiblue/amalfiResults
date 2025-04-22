@@ -115,7 +115,9 @@ def create_candidates_table() -> None:
     """Create the candidates table in the SQLite database if it doesn't exist."""
     try:
         logger.info(f"Creating candidates table in database: {DB_PATH}")
-        conn = sqlite3.connect(DB_PATH)
+        db_path_str = str(DB_PATH)
+        logger.info(f"Database path as string: {db_path_str}")
+        conn = sqlite3.connect(db_path_str)
         cursor = conn.cursor()
         
         cursor.execute('''
