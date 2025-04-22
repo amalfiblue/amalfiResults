@@ -1001,7 +1001,7 @@ async def api_electorates():
     Get all unique electorates from the candidates table
     """
     try:
-        db_path = SQLALCHEMY_DATABASE_URL.replace('sqlite://', '')
+        db_path = f"{data_dir_path}/results.db"
         logger.info(f"Connecting to database at: {db_path}")
         logger.info(f"Current working directory: {os.getcwd()}")
         
