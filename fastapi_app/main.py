@@ -33,7 +33,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///results.db"
+SQLALCHEMY_DATABASE_URL = "sqlite:///data/results.db"
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
