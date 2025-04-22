@@ -376,6 +376,35 @@ def update_booth_data():
     
     return redirect(url_for('get_booth_results_page'))
 
+@app.route('/load-all-reference-data')
+def load_all_reference_data():
+    """Load all reference data (candidates, polling booths, 2022 results) from FastAPI endpoint"""
+    try:
+        app.logger.info("Loading all reference data from FastAPI endpoint")
+        response = api_call("/admin/load-reference-data")
+        
+        if response.get("status") == "success":
+            candidates_loaded = response.get("details", {}).get("candidates_loaded", False)
+            booth_results_loaded = response.get("details", {}).get("booth_results_loaded", False)
+            
+            if candidates_loaded and booth_results_loaded:
+                flash("All reference data loaded successfully!", "success")
+            else:
+                if candidates_loaded:
+                    flash("Candidates data loaded successfully, but booth results failed.", "warning")
+                elif booth_results_loaded:
+                    flash("Booth results loaded successfully, but candidates data failed.", "warning")
+                else:
+                    flash("Failed to load reference data. Check logs for details.", "error")
+        else:
+            app.logger.error(f"Error loading reference data: {response.get('message')}")
+            flash(f"Error loading reference data: {response.get('message')}", "error")
+    except Exception as e:
+        app.logger.error(f"Error loading reference data: {e}")
+        flash(f"Error loading reference data: {str(e)}", "error")
+    
+    return redirect(url_for('admin_panel'))
+
 @app.route('/api/booth-results')
 def api_booth_results():
     electorate = request.args.get('electorate', '')
