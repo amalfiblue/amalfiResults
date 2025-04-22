@@ -89,10 +89,39 @@ class ResultResponse(BaseModel):
 
 Base.metadata.create_all(bind=engine)
 
-# Import and call the function to create the candidates table
-import sys
-sys.path.append(str(Path(__file__).parent.parent))
-from utils.aec_data_downloader import create_candidates_table
+def create_candidates_table() -> None:
+    """Create the candidates table in the SQLite database if it doesn't exist."""
+    try:
+        logger.info(f"Creating candidates table in database at: {SQLALCHEMY_DATABASE_URL}")
+        db_path = SQLALCHEMY_DATABASE_URL.replace("sqlite:///", "")
+        logger.info(f"Database file exists: {os.path.exists(db_path)}")
+        if os.path.exists(db_path):
+            logger.info(f"File permissions: {oct(os.stat(db_path).st_mode)}")
+            logger.info(f"File owner: {os.stat(db_path).st_uid}")
+        
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS candidates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            candidate_name TEXT NOT NULL,
+            party TEXT,
+            electorate TEXT NOT NULL,
+            ballot_position INTEGER,
+            candidate_type TEXT NOT NULL,
+            state TEXT,
+            data JSON
+        )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        logger.info("Successfully created candidates table")
+    except Exception as e:
+        logger.error(f"Error creating candidates table: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
 
 try:
     logger.info("Creating candidates table if it doesn't exist")
