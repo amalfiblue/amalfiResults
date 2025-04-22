@@ -15,6 +15,7 @@ httpx = "^0.24.1"
 pillow = "^10.0.0"
 pytesseract = "^0.3.10"
 python-multipart = "^0.0.6"
+requests = "^2.32.3"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"

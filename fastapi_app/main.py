@@ -88,6 +88,50 @@ class ResultResponse(BaseModel):
     data: Optional[Dict[str, Any]] = None
 
 Base.metadata.create_all(bind=engine)
+
+def create_candidates_table() -> None:
+    """Create the candidates table in the SQLite database if it doesn't exist."""
+    try:
+        logger.info(f"Creating candidates table in database at: {SQLALCHEMY_DATABASE_URL}")
+        db_path = SQLALCHEMY_DATABASE_URL.replace("sqlite:///", "")
+        logger.info(f"Database file exists: {os.path.exists(db_path)}")
+        if os.path.exists(db_path):
+            logger.info(f"File permissions: {oct(os.stat(db_path).st_mode)}")
+            logger.info(f"File owner: {os.stat(db_path).st_uid}")
+        
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS candidates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            candidate_name TEXT NOT NULL,
+            party TEXT,
+            electorate TEXT NOT NULL,
+            ballot_position INTEGER,
+            candidate_type TEXT NOT NULL,
+            state TEXT,
+            data JSON
+        )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        logger.info("Successfully created candidates table")
+    except Exception as e:
+        logger.error(f"Error creating candidates table: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+
+try:
+    logger.info("Creating candidates table if it doesn't exist")
+    create_candidates_table()
+    logger.info("Candidates table creation completed")
+except Exception as e:
+    logger.error(f"Error creating candidates table: {e}")
+    import traceback
+    logger.error(f"Traceback: {traceback.format_exc()}")
+
 def extract_tally_sheet_data(extracted_rows: List[List[str]]) -> Dict[str, Any]:
     """
     Extract structured data from tally sheet rows
@@ -554,12 +598,66 @@ async def receive_sms(request: Request):
     finally:
         db.close()
 
+@app.get("/admin/load-reference-data")
+async def load_reference_data():
+    """
+    Master admin endpoint to load all reference data (candidates, polling booths, 2022 results)
+    """
+    try:
+        logger.info("Loading all reference data...")
+        
+        import sys
+        import os
+        from pathlib import Path
+        
+        # Get the parent directory of the current file's directory
+        parent_dir = str(Path(__file__).parent.parent)
+        if parent_dir not in sys.path:
+            logger.info(f"Adding parent directory to Python path: {parent_dir}")
+            sys.path.append(parent_dir)
+        
+        try:
+            from utils.aec_data_downloader import download_and_process_aec_data
+            candidates_result = download_and_process_aec_data()
+            
+            from utils.booth_results_processor import process_and_load_booth_results
+            booth_results = process_and_load_booth_results()
+            
+            return {
+                "status": "success", 
+                "message": "Reference data loaded successfully",
+                "details": {
+                    "candidates_loaded": candidates_result,
+                    "booth_results_loaded": booth_results
+                }
+            }
+        except ImportError as ie:
+            logger.error(f"Import error: {ie}")
+            logger.info(f"Current sys.path: {sys.path}")
+            logger.info(f"Current working directory: {os.getcwd()}")
+            logger.info(f"Directory contents: {os.listdir(parent_dir)}")
+            raise HTTPException(status_code=500, detail=f"Import error: {str(ie)}")
+    except Exception as e:
+        logger.error(f"Error loading reference data: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/admin/polling-places/{division}")
 async def get_polling_places(division: str):
     """
     Get polling places for a specific division
     """
     try:
+        import sys
+        from pathlib import Path
+        
+        # Get the parent directory of the current file's directory
+        parent_dir = str(Path(__file__).parent.parent)
+        if parent_dir not in sys.path:
+            logger.info(f"Adding parent directory to Python path: {parent_dir}")
+            sys.path.append(parent_dir)
+            
         from utils.booth_results_processor import get_booth_results_for_division
         polling_places = get_booth_results_for_division(division)
         return {"status": "success", "polling_places": polling_places}

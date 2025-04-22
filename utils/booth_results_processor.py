@@ -10,6 +10,7 @@ import csv
 import json
 import logging
 import sqlite3
+import requests
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
@@ -19,19 +20,61 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+AEC_BOOTH_RESULTS_URL = "https://results.aec.gov.au/27966/Website/Downloads/HouseTppByPollingPlaceDownload-27966.csv"
+
 DATA_DIR = Path(__file__).parent.parent / "data"
-DB_PATH = Path("/app/data/results.db")
+is_docker = os.path.exists("/.dockerenv") or os.path.isdir("/app/data")
+data_dir_path = "/app/data" if is_docker else "./data"
+DB_PATH = Path(f"{data_dir_path}/results.db")
+logger.info(f"Using database path: {DB_PATH}")
 
 def ensure_data_dir() -> None:
     """Ensure the data directory exists."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     logger.info(f"Data directory ensured at {DATA_DIR}")
+    
+def download_booth_results_file() -> bool:
+    """
+    Download the booth results file from the AEC website.
+    
+    Returns:
+        bool: True if download was successful, False otherwise
+    """
+    try:
+        booth_results_path = DATA_DIR / "HouseTppByPollingPlaceDownload-27966.csv"
+        logger.info(f"Downloading booth results file to {booth_results_path}")
+        logger.info(f"DATA_DIR: {DATA_DIR}, exists: {DATA_DIR.exists()}, is_dir: {DATA_DIR.is_dir()}")
+        logger.info(f"Current working directory: {os.getcwd()}")
+        
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            response = requests.get(AEC_BOOTH_RESULTS_URL, stream=True)
+            response.raise_for_status()
+            
+            with open(booth_results_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            
+            logger.info(f"Successfully downloaded booth results file to {booth_results_path}")
+            logger.info(f"File exists: {booth_results_path.exists()}, size: {booth_results_path.stat().st_size if booth_results_path.exists() else 0} bytes")
+            return True
+        except requests.exceptions.RequestException as re:
+            logger.error(f"Request error downloading booth results file: {re}")
+            return False
+    except Exception as e:
+        logger.error(f"Error downloading booth results file: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return False
 
 def create_booth_results_table() -> None:
     """Create the booth_results table in the SQLite database if it doesn't exist."""
     try:
         logger.info(f"Creating booth_results table in database: {DB_PATH}")
-        conn = sqlite3.connect(DB_PATH)
+        db_path_str = str(DB_PATH)
+        logger.info(f"Database path as string: {db_path_str}")
+        conn = sqlite3.connect(db_path_str)
         cursor = conn.cursor()
         
         cursor.execute('''
@@ -111,7 +154,8 @@ def save_booth_results_to_database(results: List[Dict[str, Any]]) -> bool:
     """
     try:
         logger.info(f"Saving {len(results)} booth results to database")
-        conn = sqlite3.connect(DB_PATH)
+        db_path_str = str(DB_PATH)
+        conn = sqlite3.connect(db_path_str)
         cursor = conn.cursor()
         
         cursor.execute("DELETE FROM booth_results_2022")
@@ -158,7 +202,8 @@ def get_booth_results_for_division(division_name: str) -> List[Dict[str, Any]]:
     """
     try:
         logger.info(f"Getting booth results for division: {division_name}")
-        conn = sqlite3.connect(DB_PATH)
+        db_path_str = str(DB_PATH)
+        conn = sqlite3.connect(db_path_str)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
@@ -191,7 +236,8 @@ def get_booth_results_for_polling_place(division_name: str, polling_place_name: 
     """
     try:
         logger.info(f"Getting booth results for polling place: {polling_place_name} in division: {division_name}")
-        conn = sqlite3.connect(DB_PATH)
+        db_path_str = str(DB_PATH)
+        conn = sqlite3.connect(db_path_str)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
@@ -251,6 +297,7 @@ def calculate_swing(current_result: Dict[str, Any], historical_result: Dict[str,
 def process_and_load_booth_results() -> bool:
     """
     Process and load booth results from the 2022 federal election.
+    Downloads the booth results file if it doesn't exist.
     
     Returns:
         bool: True if all operations were successful, False otherwise
@@ -262,19 +309,34 @@ def process_and_load_booth_results() -> bool:
         
         booth_results_path = DATA_DIR / "HouseTppByPollingPlaceDownload-27966.csv"
         if not booth_results_path.exists():
-            logger.error(f"Booth results file not found at {booth_results_path}")
-            return False
+            logger.info(f"Booth results file not found at {booth_results_path}, downloading...")
+            if not download_booth_results_file():
+                logger.error("Failed to download booth results file")
+                return False
         
+        if not booth_results_path.exists():
+            logger.error(f"Booth results file still not found at {booth_results_path} after download attempt")
+            return False
+            
+        logger.info(f"Processing booth results file: {booth_results_path}")
         results = process_booth_results_file(booth_results_path)
         if not results:
+            logger.error("Failed to process booth results file")
             return False
         
+        logger.info(f"Saving {len(results)} booth results to database")
         success = save_booth_results_to_database(results)
         
-        logger.info("Successfully processed and loaded booth results")
+        if success:
+            logger.info("Successfully processed and loaded booth results")
+        else:
+            logger.error("Failed to save booth results to database")
+            
         return success
     except Exception as e:
         logger.error(f"Error processing and loading booth results: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return False
 
 if __name__ == "__main__":
