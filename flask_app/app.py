@@ -20,7 +20,7 @@ from utils.booth_results_processor import process_and_load_booth_results, get_bo
 
 load_dotenv()
 
-FASTAPI_URL = os.environ.get('FASTAPI_URL', 'http://localhost:8000/results_fastapi_app')
+FASTAPI_URL = os.environ.get('FASTAPI_URL', 'http://results_fastapi_app:8000')
 
 def api_call(endpoint, method='get', data=None, params=None):
     """Make an API call to the FastAPI service"""
