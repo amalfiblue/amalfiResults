@@ -19,7 +19,11 @@ from utils.booth_results_processor import process_and_load_booth_results, get_bo
 
 load_dotenv()
 
-FASTAPI_URL = os.environ.get('FASTAPI_URL', 'http://results_fastapi_app:8000')
+is_docker = os.path.exists("/.dockerenv") or os.path.isdir("/app")
+FASTAPI_URL = os.environ.get('FASTAPI_URL', 'http://results_fastapi_app:8000' if is_docker else 'http://localhost:8000')
+app = Flask(__name__)
+app.logger.info(f"Running in {'Docker' if is_docker else 'local'} environment")
+app.logger.info(f"Using FastAPI URL: {FASTAPI_URL}")
 
 def api_call(endpoint, method='get', data=None, params=None):
     """Make an API call to the FastAPI service"""
