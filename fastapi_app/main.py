@@ -33,9 +33,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///app/data/results.db"
+is_docker = os.path.exists("/.dockerenv")
+data_dir_path = "/app/data" if is_docker else "./data"
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{data_dir_path}/results.db"
 
-data_dir = Path("/app/data")
+data_dir = Path(data_dir_path)
 data_dir.mkdir(parents=True, exist_ok=True)
 os.chmod(data_dir, 0o777)  # Full permissions for the data directory
 
