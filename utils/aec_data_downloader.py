@@ -24,7 +24,7 @@ AEC_SENATE_CANDIDATES_URL = "https://aec.gov.au/election/files/data/senate-candi
 AEC_HOUSE_CANDIDATES_URL = "https://aec.gov.au/election/files/data/house-candidates.csv"
 
 DATA_DIR = Path(__file__).parent.parent / "data"
-DB_PATH = Path(__file__).parent.parent / "results.db"
+DB_PATH = Path("/app/data/results.db")
 
 
 def ensure_data_dir() -> None:
