@@ -43,18 +43,29 @@ def download_booth_results_file() -> bool:
     try:
         booth_results_path = DATA_DIR / "HouseTppByPollingPlaceDownload-27966.csv"
         logger.info(f"Downloading booth results file to {booth_results_path}")
+        logger.info(f"DATA_DIR: {DATA_DIR}, exists: {DATA_DIR.exists()}, is_dir: {DATA_DIR.is_dir()}")
+        logger.info(f"Current working directory: {os.getcwd()}")
         
-        response = requests.get(AEC_BOOTH_RESULTS_URL, stream=True)
-        response.raise_for_status()
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
         
-        with open(booth_results_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        
-        logger.info(f"Successfully downloaded booth results file")
-        return True
+        try:
+            response = requests.get(AEC_BOOTH_RESULTS_URL, stream=True)
+            response.raise_for_status()
+            
+            with open(booth_results_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            
+            logger.info(f"Successfully downloaded booth results file to {booth_results_path}")
+            logger.info(f"File exists: {booth_results_path.exists()}, size: {booth_results_path.stat().st_size if booth_results_path.exists() else 0} bytes")
+            return True
+        except requests.exceptions.RequestException as re:
+            logger.error(f"Request error downloading booth results file: {re}")
+            return False
     except Exception as e:
         logger.error(f"Error downloading booth results file: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return False
 
 def create_booth_results_table() -> None:
