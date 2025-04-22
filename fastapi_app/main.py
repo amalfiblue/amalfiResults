@@ -33,10 +33,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///data/results.db"
+SQLALCHEMY_DATABASE_URL = "sqlite:///app/data/results.db"
 
-data_dir = Path("data")
-data_dir.mkdir(exist_ok=True)
+data_dir = Path("/app/data")
+data_dir.mkdir(parents=True, exist_ok=True)
 os.chmod(data_dir, 0o777)  # Full permissions for the data directory
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
