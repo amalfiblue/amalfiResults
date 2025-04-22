@@ -3,9 +3,12 @@ import sys
 import json
 import sqlite3
 import datetime
+import base64
 from pathlib import Path
 from flask import Flask, render_template, jsonify, request, redirect, url_for, flash, session, get_flashed_messages
 from flask_socketio import SocketIO, emit
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import requests
 import threading
@@ -46,7 +49,11 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_key_for_amalfi_results')
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-app.config['IS_ADMIN'] = True
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
+login_manager.login_message_category = 'info'
+
+app.config['IS_ADMIN'] = False
 
 class Result:
     """Plain Python class to replace SQLAlchemy model"""
@@ -105,6 +112,67 @@ class TCPCandidate:
             'candidate_name': self.candidate_name,
             'position': self.position
         }
+
+class User(db.Model, UserMixin):
+    __tablename__ = "users"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(100), unique=True, nullable=False)
+    password_hash = db.Column(db.String(200), nullable=False)
+    division = db.Column(db.String(100), nullable=True)  # Null means root user with access to all divisions
+    is_approved = db.Column(db.Boolean, default=False)
+    is_admin = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'email': self.email,
+            'division': self.division,
+            'is_approved': self.is_approved,
+            'is_admin': self.is_admin,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+    
+    def set_password(self, password):
+        """Hash and set the password"""
+        self.password_hash = generate_password_hash(password)
+        
+    def check_password(self, password):
+        """Check if the password matches"""
+        return check_password_hash(self.password_hash, password)
+    
+    def has_access_to_division(self, division):
+        """Check if user has access to a specific division"""
+        if self.division is None:
+            return True
+        return self.division == division
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+def create_root_user():
+    """Create the root user if it doesn't exist"""
+    root_email = "andrew.waites@amalfination.com"
+    root_password = "dragonSneezer"
+    
+    root_user = User.query.filter_by(email=root_email).first()
+    if not root_user:
+        root_user = User(
+            email=root_email,
+            division=None,  # No division means access to all
+            is_approved=True,
+            is_admin=True
+        )
+        root_user.set_password(root_password)
+        db.session.add(root_user)
+        db.session.commit()
+        app.logger.info(f"Root user {root_email} created")
+
+with app.app_context():
+    db.create_all()
+    create_root_user()
 
 
 def get_all_electorates():
@@ -393,10 +461,28 @@ def api_booth_results():
 
 @app.route('/dashboard')
 @app.route('/dashboard/<electorate>')
+@login_required
 def get_dashboard(electorate=None):
     """Electorate dashboard showing live results"""
     electorates = get_all_electorates()
     last_updated = get_last_updated_time()
+    
+    if not electorate:
+        for e in electorates:
+            if current_user.has_access_to_division(e):
+                electorate = e
+                break
+        if not electorate and electorates:
+            if not current_user.is_admin:
+                flash("You don't have access to any electorate", "error")
+                return redirect(url_for('index'))
+            # Admin users can see any electorate
+            electorate = electorates[0]
+    
+    # Check if user has access to the specified electorate
+    if electorate and not current_user.has_access_to_division(electorate):
+        flash(f"You don't have access to {electorate}", "error")
+        return redirect(url_for('index'))
     
     # Get booth counts for each electorate
     booth_counts = {}
@@ -539,9 +625,11 @@ def get_dashboard(electorate=None):
     )
 
 @app.route('/admin/tcp-candidates/<electorate>', methods=['GET', 'POST'])
+@login_required
 def admin_tcp_candidates(electorate):
-    """Admin page to set TCP candidates for an electorate using FastAPI endpoints"""
-    if not app.config.get('IS_ADMIN', False):
+    """Admin page to set TCP candidates for an electorate"""
+    if not current_user.is_admin:
+
         flash("Admin access required", "error")
         return redirect(url_for('get_dashboard'))
     
@@ -690,13 +778,14 @@ def dashboard_join(data):
     """Join a specific electorate's dashboard room"""
     if 'electorate' in data:
         app.logger.info(f"Client {request.sid} joined electorate: {data['electorate']}")
-        socketio.emit('status', {'status': 'connected', 'electorate': data['electorate']}, room=request.sid)
+        socketio.emit('status', {'status': 'connected', 'electorate': data['electorate']}, to=request.sid)
 
 @app.route('/admin/polling-places', methods=['GET'])
 @app.route('/admin/polling-places/<division>', methods=['GET'])
+@login_required
 def admin_polling_places(division=None):
     """Admin page to view polling places for a division and manage results"""
-    if not app.config.get('IS_ADMIN', False):
+    if not current_user.is_admin:
         flash("Admin access required", "error")
         return redirect(url_for('get_dashboard'))
     
@@ -744,9 +833,11 @@ def admin_polling_places(division=None):
     )
 
 @app.route('/admin/reset-results', methods=['POST'])
+@login_required
 def admin_reset_results():
-    """Reset results for testing purposes using FastAPI endpoint"""
-    if not app.config.get('IS_ADMIN', False):
+    """Reset results for testing purposes"""
+    if not current_user.is_admin:
+
         flash("Admin access required", "error")
         return redirect(url_for('get_dashboard'))
     
@@ -783,9 +874,12 @@ def admin_reset_results():
     return redirect(url_for('admin_polling_places', division=division))
 
 @app.route('/admin/review-result/<int:result_id>', methods=['GET', 'POST'])
+@login_required
 def admin_review_result(result_id):
-    """Admin page to review and approve a result using FastAPI endpoints"""
-    if not app.config.get('IS_ADMIN', False):
+
+    """Admin page to review and approve a result"""
+    if not current_user.is_admin:
+
         flash("Admin access required", "error")
         return redirect(url_for('get_dashboard'))
     
@@ -809,24 +903,15 @@ def admin_review_result(result_id):
         action = request.form.get('action')
         
         try:
-            review_data = {
-                "action": action,
-                "reviewed": True,
-                "approved": action == "approve",
-                "reviewed_at": datetime.datetime.utcnow().isoformat()
-            }
-            
-            review_response = api_call(
-                f"/api/results/{result_id}/review", 
-                method="post", 
-                data=review_data
-            )
-            
-            if review_response.get("status") == "success":
-                if action == "approve":
-                    flash("Result approved successfully", "success")
-                else:
-                    flash("Result rejected", "warning")
+            if action == 'approve':
+                if not result.data:
+                    result.data = {}
+                result.data['reviewed'] = True
+                result.data['approved'] = True
+                result.data['reviewed_at'] = datetime.datetime.utcnow().isoformat()
+                db.session.commit()
+                flash("Result approved successfully", "success")
+
                 
                 socketio.emit('update', {'electorate': result.electorate}, namespace='/dashboard')
                 
@@ -838,9 +923,21 @@ def admin_review_result(result_id):
                 })
                 
                 return redirect(url_for('admin_polling_places', division=result.electorate))
+
+            elif action == 'reject':
+                if not result.data:
+                    result.data = {}
+                result.data['reviewed'] = True
+                result.data['approved'] = False
+                result.data['reviewed_at'] = datetime.datetime.utcnow().isoformat()
+                db.session.commit()
+                flash("Result rejected", "warning")
+                return redirect(url_for('admin_polling_places', division=result.electorate))
+
             else:
                 app.logger.error(f"Error reviewing result: {review_response.get('message')}")
                 flash(f"Error reviewing result: {review_response.get('message')}", "error")
+
         except Exception as e:
             app.logger.error(f"Error reviewing result: {e}")
             flash(f"Error reviewing result: {str(e)}", "error")
@@ -860,9 +957,10 @@ def admin_review_result(result_id):
 
 @app.route('/admin/panel', methods=['GET'])
 @app.route('/admin/panel/<division>', methods=['GET'])
+@login_required
 def admin_panel(division=None):
     """Admin panel that uses FastAPI endpoints for actions"""
-    if not app.config.get('IS_ADMIN', False):
+    if not current_user.is_admin:
         flash("Admin access required", "error")
         return redirect(url_for('get_dashboard'))
     
@@ -920,5 +1018,124 @@ def set_default_division(division):
 
     return jsonify({"status": "success"})
 
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Login page"""
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+        
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')
+        
+        user = User.query.filter_by(email=email).first()
+        
+        if user and user.check_password(password):
+            if not user.is_approved:
+                flash("Your account is pending approval", "warning")
+                return redirect(url_for('login'))
+                
+            login_user(user)
+            
+            app.config['IS_ADMIN'] = user.is_admin
+            
+            next_page = request.args.get('next')
+            return redirect(next_page or url_for('index'))
+        else:
+            flash("Invalid email or password", "danger")
+    
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    """Logout user"""
+    logout_user()
+    app.config['IS_ADMIN'] = False
+    flash("You have been logged out", "success")
+    return redirect(url_for('index'))
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    """Registration page"""
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+        
+    electorates = get_all_electorates()
+    
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')
+        division = request.form.get('division')
+        
+        existing_user = User.query.filter_by(email=email).first()
+        if existing_user:
+            flash("Email already registered", "danger")
+            return render_template('register.html', electorates=electorates)
+        
+        user = User(
+            email=email,
+            division=division,
+            is_approved=False,
+            is_admin=False
+        )
+        user.set_password(password)
+        
+        db.session.add(user)
+        db.session.commit()
+        
+        flash("Registration successful. Your account is pending approval.", "success")
+        return redirect(url_for('login'))
+        
+    return render_template('register.html', electorates=electorates)
+
+@app.route('/admin/users')
+@login_required
+def admin_users():
+    """Admin page to manage user registrations"""
+    if not current_user.is_admin:
+        flash("Admin access required", "error")
+        return redirect(url_for('index'))
+        
+    pending_users = User.query.filter_by(is_approved=False).all()
+    approved_users = User.query.filter_by(is_approved=True).all()
+    
+    return render_template(
+        'admin_users.html',
+        pending_users=pending_users,
+        approved_users=approved_users
+    )
+
+@app.route('/admin/users/<int:user_id>/approve', methods=['POST'])
+@login_required
+def approve_user(user_id):
+    """Approve a user registration"""
+    if not current_user.is_admin:
+        flash("Admin access required", "error")
+        return redirect(url_for('index'))
+        
+    user = User.query.get_or_404(user_id)
+    user.is_approved = True
+    db.session.commit()
+    
+    flash(f"User {user.email} approved", "success")
+    return redirect(url_for('admin_users'))
+
+@app.route('/admin/users/<int:user_id>/reject', methods=['POST'])
+@login_required
+def reject_user(user_id):
+    """Reject and delete a user registration"""
+    if not current_user.is_admin:
+        flash("Admin access required", "error")
+        return redirect(url_for('index'))
+        
+    user = User.query.get_or_404(user_id)
+    db.session.delete(user)
+    db.session.commit()
+    
+    flash(f"User {user.email} rejected", "success")
+    return redirect(url_for('admin_users'))
+
 if __name__ == '__main__':
-    socketio.run(app, debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), allow_unsafe_werkzeug=True)
+    socketio.run(app, debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), 
+                 allow_unsafe_werkzeug=True, use_reloader=True, log_output=True)
