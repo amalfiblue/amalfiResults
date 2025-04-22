@@ -158,7 +158,8 @@ def get_last_updated_time():
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    """Redirect to dashboard as the default landing page"""
+    return redirect(url_for('get_dashboard'))
 
 @app.route('/results')
 def get_results():
@@ -332,8 +333,14 @@ def get_dashboard(electorate=None):
         historical_booths = get_booth_results_for_division(e)
         total_booths[e] = len(historical_booths) if historical_booths else 0
     
+    if not electorate:
+        electorate = session.get('default_division')
+        
     if not electorate and electorates:
         electorate = electorates[0]
+        
+    if electorate:
+        session['last_viewed_division'] = electorate
     
     # Get booth results for the selected electorate
     booth_results = []
@@ -806,6 +813,18 @@ def api_notify():
                 'status': status
             }, namespace='/dashboard')
     
+
+@app.route('/set-default-division/<division>')
+def set_default_division(division):
+    """Set the default division for the user session"""
+    next_url = request.args.get('next', url_for('get_dashboard'))
+    
+    if division:
+        session['default_division'] = division
+        flash(f"Default division set to {division}", "success")
+    
+    return redirect(next_url)
+
     return jsonify({"status": "success"})
 
 if __name__ == '__main__':
