@@ -20,7 +20,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent.parent / "data"
-DB_PATH = Path("/app/data/results.db")
+is_docker = os.path.exists("/.dockerenv") or os.path.isdir("/app/data")
+data_dir_path = "/app/data" if is_docker else "./data"
+DB_PATH = Path(f"{data_dir_path}/results.db")
+logger.info(f"Using database path: {DB_PATH}")
 
 def ensure_data_dir() -> None:
     """Ensure the data directory exists."""
@@ -31,7 +34,9 @@ def create_booth_results_table() -> None:
     """Create the booth_results table in the SQLite database if it doesn't exist."""
     try:
         logger.info(f"Creating booth_results table in database: {DB_PATH}")
-        conn = sqlite3.connect(DB_PATH)
+        db_path_str = str(DB_PATH)
+        logger.info(f"Database path as string: {db_path_str}")
+        conn = sqlite3.connect(db_path_str)
         cursor = conn.cursor()
         
         cursor.execute('''
@@ -111,7 +116,8 @@ def save_booth_results_to_database(results: List[Dict[str, Any]]) -> bool:
     """
     try:
         logger.info(f"Saving {len(results)} booth results to database")
-        conn = sqlite3.connect(DB_PATH)
+        db_path_str = str(DB_PATH)
+        conn = sqlite3.connect(db_path_str)
         cursor = conn.cursor()
         
         cursor.execute("DELETE FROM booth_results_2022")
@@ -158,7 +164,8 @@ def get_booth_results_for_division(division_name: str) -> List[Dict[str, Any]]:
     """
     try:
         logger.info(f"Getting booth results for division: {division_name}")
-        conn = sqlite3.connect(DB_PATH)
+        db_path_str = str(DB_PATH)
+        conn = sqlite3.connect(db_path_str)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
@@ -191,7 +198,8 @@ def get_booth_results_for_polling_place(division_name: str, polling_place_name: 
     """
     try:
         logger.info(f"Getting booth results for polling place: {polling_place_name} in division: {division_name}")
-        conn = sqlite3.connect(DB_PATH)
+        db_path_str = str(DB_PATH)
+        conn = sqlite3.connect(db_path_str)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
