@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}Candidates - Amalfi Results{% endblock %}
+
+{% block content %}
+    <h1>Candidates</h1>
+    
+    <div class="row mt-4">
+        <div class="col-md-4">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Filter Candidates</h5>
+                </div>
+                <div class="card-body">
+                    <form method="get" action="/candidates">
+                        <div class="mb-3">
+                            <label for="electorate" class="form-label">Electorate</label>
+                            <select class="form-select" id="electorate" name="electorate">
+                                <option value="">All Electorates</option>
+                                {% for e in electorates %}
+                                <option value="{{ e }}" {% if electorate == e %}selected{% endif %}>{{ e }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="candidate_type" class="form-label">Candidate Type</label>
+                            <select class="form-select" id="candidate_type" name="candidate_type">
+                                <option value="">All Types</option>
+                                <option value="house" {% if candidate_type == 'house' %}selected{% endif %}>House of Representatives</option>
+                                <option value="senate" {% if candidate_type == 'senate' %}selected{% endif %}>Senate</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Filter</button>
+                    </form>
+                </div>
+            </div>
+            
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">AEC Data</h5>
+                </div>
+                <div class="card-body">
+                    <p>Last updated: {{ last_updated }}</p>
+                    <a href="/update-aec-data" class="btn btn-outline-primary">Update AEC Data</a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        {% if electorate %}
+                            Candidates for {{ electorate }}
+                        {% else %}
+                            All Candidates
+                        {% endif %}
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if candidates %}
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Ballot Position</th>
+                                        <th>Candidate Name</th>
+                                        <th>Party</th>
+                                        <th>Electorate</th>
+                                        <th>Type</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for candidate in candidates %}
+                                    <tr>
+                                        <td>{{ candidate.ballot_position }}</td>
+                                        <td>{{ candidate.name }}</td>
+                                        <td>{{ candidate.party }}</td>
+                                        <td>{{ candidate.electorate }}</td>
+                                        <td>{{ 'House of Representatives' if candidate.candidate_type == 'house' else 'Senate' }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-info">
+                            No candidates found. Please update the AEC data or adjust your filters.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+{% endblock %}
