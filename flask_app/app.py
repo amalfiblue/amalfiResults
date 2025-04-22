@@ -819,10 +819,12 @@ def admin_panel(division=None):
         messages.append((category, message))
     
     return render_template(
-        'admin_panel.html',
+        'admin_panel_new.html',
         division=division,
         electorates=electorates,
-        messages=messages
+        messages=messages,
+        selected_electorate=division,
+        is_admin=app.config.get('IS_ADMIN', False)
     )
 
 @app.route('/api/notify', methods=['POST'])
