@@ -33,9 +33,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-is_docker = os.path.exists("/.dockerenv")
+is_docker = os.path.exists("/.dockerenv") or os.path.isdir("/app/data")
 data_dir_path = "/app/data" if is_docker else "./data"
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{data_dir_path}/results.db"
+logger.info(f"Running in {'Docker' if is_docker else 'local'} environment")
+logger.info(f"Using database path: {data_dir_path}/results.db")
 
 data_dir = Path(data_dir_path)
 data_dir.mkdir(parents=True, exist_ok=True)
