@@ -793,9 +793,12 @@ def admin_review_result(result_id):
         messages.append((category, message))
     
     return render_template(
-        'admin_review_result.html',
+        'admin_review_result_new.html',
         result=result,
-        messages=messages
+        messages=messages,
+        electorates=get_all_electorates(),
+        selected_electorate=result.electorate,
+        is_admin=app.config.get('IS_ADMIN', False)
     )
 
 @app.route('/admin/panel', methods=['GET'])
