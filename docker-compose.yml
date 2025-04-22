@@ -10,7 +10,7 @@ services:
     environment:
       - FLASK_APP=app.py
       - FLASK_ENV=production
-      - FASTAPI_URL=http://fastapi_app:8000
+      - FASTAPI_URL=http://results_fastapi_app:8000
     volumes:
       - ./flask_app:/app
     depends_on:
