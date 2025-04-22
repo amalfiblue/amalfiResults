@@ -103,6 +103,8 @@ jobs:
                   - FLASK_ENV=production
                   - FASTAPI_URL=http://fastapi_app:8000
                 restart: always
+                volumes:
+                  - flask_data:/app/data
                 depends_on:
                   - fastapi_app
                 networks:
@@ -117,6 +119,8 @@ jobs:
                 environment:
                   - FLASK_APP_URL=http://flask_app:5000/api/notify
                 restart: always
+                volumes:
+                  - fastapi_data:/app/data
                 networks:
                   - amalfi_network
                 expose:
@@ -125,6 +129,12 @@ jobs:
             networks:
               amalfi_network:
                 external: true
+                
+            volumes:
+              fastapi_data:
+                driver: local
+              flask_data:
+                driver: local
             EOL
             
             # Ensure latest images are pulled and start the containers with force
