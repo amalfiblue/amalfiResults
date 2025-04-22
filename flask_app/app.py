@@ -164,12 +164,22 @@ def index():
 @app.route('/results')
 def get_results():
     results = Result.query.order_by(Result.timestamp.desc()).all()
-    return render_template('results.html', results=results)
+    
+    messages = []
+    for category, message in get_flashed_messages(with_categories=True):
+        messages.append((category, message))
+    
+    return render_template('results_new.html', results=results, messages=messages)
 
 @app.route('/results/<int:result_id>')
 def get_result_detail(result_id):
     result = Result.query.get_or_404(result_id)
-    return render_template('result_detail.html', result=result)
+    
+    messages = []
+    for category, message in get_flashed_messages(with_categories=True):
+        messages.append((category, message))
+    
+    return render_template('result_detail_new.html', result=result, messages=messages)
 
 @app.route('/candidates')
 def get_candidates_page():
@@ -180,13 +190,18 @@ def get_candidates_page():
     electorates = get_all_electorates()
     last_updated = get_last_updated_time()
     
+    messages = []
+    for category, message in get_flashed_messages(with_categories=True):
+        messages.append((category, message))
+    
     return render_template(
-        'candidates.html', 
+        'candidates_new.html', 
         candidates=candidates_data, 
         electorates=electorates,
         electorate=electorate,
         candidate_type=candidate_type,
-        last_updated=last_updated
+        last_updated=last_updated,
+        messages=messages
     )
 
 @app.route('/update-aec-data')
@@ -277,14 +292,19 @@ def get_booth_results_page():
                             booth_result
                         )
     
+    messages = []
+    for category, message in get_flashed_messages(with_categories=True):
+        messages.append((category, message))
+    
     return render_template(
-        'booth_results.html',
+        'booth_results_new.html',
         booth_results=booth_results,
         current_results=current_results,
         electorates=electorates,
         electorate=electorate,
         booth=booth,
-        last_updated=last_updated
+        last_updated=last_updated,
+        messages=messages
     )
 
 @app.route('/update-booth-data')
@@ -507,11 +527,14 @@ def admin_tcp_candidates(electorate):
         messages.append((category, message))
     
     return render_template(
-        'admin_tcp_candidates.html',
+        'admin_tcp_candidates_new.html',
         electorate=electorate,
         candidates=candidates,
         tcp_candidates=tcp_candidate_names,
-        messages=messages
+        messages=messages,
+        electorates=get_all_electorates(),
+        selected_electorate=electorate,
+        is_admin=app.config.get('IS_ADMIN', False)
     )
 
 @app.route('/api/dashboard/<electorate>')
