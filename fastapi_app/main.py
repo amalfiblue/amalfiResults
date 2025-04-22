@@ -1,5 +1,6 @@
 import os
 import re
+import sqlite3
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +16,7 @@ from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 import logging
 from typing import Dict, List, Optional, Any, Tuple
+from pydantic import BaseModel
 
 load_dotenv()
 
@@ -31,7 +33,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SQLALCHEMY_DATABASE_URL = "sqlite:////app/results.db"
+is_docker = os.path.exists("/.dockerenv") or os.path.isdir("/app/data")
+data_dir_path = "/app/data" if is_docker else "./data"
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{data_dir_path}/results.db"
+logger.info(f"Running in {'Docker' if is_docker else 'local'} environment")
+logger.info(f"Using database path: {data_dir_path}/results.db")
+
+data_dir = Path(data_dir_path)
+data_dir.mkdir(parents=True, exist_ok=True)
+os.chmod(data_dir, 0o777)  # Full permissions for the data directory
+
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -46,7 +57,81 @@ class Result(Base):
     booth_name = Column(String, index=True)
     data = Column(JSON)
 
+class TCPCandidate(Base):
+    __tablename__ = "tcp_candidates"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    electorate = Column(String, index=True)
+    candidate_id = Column(Integer)
+    candidate_name = Column(String)
+    position = Column(Integer)  # 1 or 2 for the two TCP candidates
+
+class TCPCandidateCreate(BaseModel):
+    electorate: str
+    candidate_id: int
+    candidate_name: str
+    position: int
+
+class TCPCandidateResponse(BaseModel):
+    id: int
+    electorate: str
+    candidate_id: int
+    candidate_name: str
+    position: int
+
+class ResultResponse(BaseModel):
+    id: int
+    image_url: Optional[str] = None
+    timestamp: str
+    electorate: Optional[str] = None
+    booth_name: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
+
 Base.metadata.create_all(bind=engine)
+
+def create_candidates_table() -> None:
+    """Create the candidates table in the SQLite database if it doesn't exist."""
+    try:
+        logger.info(f"Creating candidates table in database at: {SQLALCHEMY_DATABASE_URL}")
+        db_path = SQLALCHEMY_DATABASE_URL.replace("sqlite:///", "")
+        logger.info(f"Database file exists: {os.path.exists(db_path)}")
+        if os.path.exists(db_path):
+            logger.info(f"File permissions: {oct(os.stat(db_path).st_mode)}")
+            logger.info(f"File owner: {os.stat(db_path).st_uid}")
+        
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS candidates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            candidate_name TEXT NOT NULL,
+            party TEXT,
+            electorate TEXT NOT NULL,
+            ballot_position INTEGER,
+            candidate_type TEXT NOT NULL,
+            state TEXT,
+            data JSON
+        )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        logger.info("Successfully created candidates table")
+    except Exception as e:
+        logger.error(f"Error creating candidates table: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+
+try:
+    logger.info("Creating candidates table if it doesn't exist")
+    create_candidates_table()
+    logger.info("Candidates table creation completed")
+except Exception as e:
+    logger.error(f"Error creating candidates table: {e}")
+    import traceback
+    logger.error(f"Traceback: {traceback.format_exc()}")
+
 def extract_tally_sheet_data(extracted_rows: List[List[str]]) -> Dict[str, Any]:
     """
     Extract structured data from tally sheet rows
@@ -513,12 +598,66 @@ async def receive_sms(request: Request):
     finally:
         db.close()
 
+@app.get("/admin/load-reference-data")
+async def load_reference_data():
+    """
+    Master admin endpoint to load all reference data (candidates, polling booths, 2022 results)
+    """
+    try:
+        logger.info("Loading all reference data...")
+        
+        import sys
+        import os
+        from pathlib import Path
+        
+        # Get the parent directory of the current file's directory
+        parent_dir = str(Path(__file__).parent.parent)
+        if parent_dir not in sys.path:
+            logger.info(f"Adding parent directory to Python path: {parent_dir}")
+            sys.path.append(parent_dir)
+        
+        try:
+            from utils.aec_data_downloader import download_and_process_aec_data
+            candidates_result = download_and_process_aec_data()
+            
+            from utils.booth_results_processor import process_and_load_booth_results
+            booth_results = process_and_load_booth_results()
+            
+            return {
+                "status": "success", 
+                "message": "Reference data loaded successfully",
+                "details": {
+                    "candidates_loaded": candidates_result,
+                    "booth_results_loaded": booth_results
+                }
+            }
+        except ImportError as ie:
+            logger.error(f"Import error: {ie}")
+            logger.info(f"Current sys.path: {sys.path}")
+            logger.info(f"Current working directory: {os.getcwd()}")
+            logger.info(f"Directory contents: {os.listdir(parent_dir)}")
+            raise HTTPException(status_code=500, detail=f"Import error: {str(ie)}")
+    except Exception as e:
+        logger.error(f"Error loading reference data: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/admin/polling-places/{division}")
 async def get_polling_places(division: str):
     """
     Get polling places for a specific division
     """
     try:
+        import sys
+        from pathlib import Path
+        
+        # Get the parent directory of the current file's directory
+        parent_dir = str(Path(__file__).parent.parent)
+        if parent_dir not in sys.path:
+            logger.info(f"Adding parent directory to Python path: {parent_dir}")
+            sys.path.append(parent_dir)
+            
         from utils.booth_results_processor import get_booth_results_for_division
         polling_places = get_booth_results_for_division(division)
         return {"status": "success", "polling_places": polling_places}
@@ -672,6 +811,383 @@ async def review_result(result_id: int, request: Request):
         raise
     except Exception as e:
         logger.error(f"Error reviewing result {result_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/results")
+async def api_results():
+    """
+    Get all results ordered by timestamp descending
+    """
+    try:
+        db = SessionLocal()
+        try:
+            results = db.query(Result).order_by(Result.timestamp.desc()).all()
+            return {
+                "status": "success",
+                "results": [
+                    {
+                        "id": r.id,
+                        "timestamp": r.timestamp.isoformat(),
+                        "electorate": r.electorate,
+                        "booth_name": r.booth_name,
+                        "image_url": r.image_url,
+                        "data": r.data
+                    } for r in results
+                ]
+            }
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error getting results: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/results/{result_id}")
+async def api_result_detail(result_id: int):
+    """
+    Get a specific result by ID
+    """
+    try:
+        db = SessionLocal()
+        try:
+            result = db.query(Result).filter_by(id=result_id).first()
+            if not result:
+                raise HTTPException(status_code=404, detail=f"Result with ID {result_id} not found")
+            
+            return {
+                "status": "success",
+                "result": {
+                    "id": result.id,
+                    "timestamp": result.timestamp.isoformat(),
+                    "electorate": result.electorate,
+                    "booth_name": result.booth_name,
+                    "image_url": result.image_url,
+                    "data": result.data
+                }
+            }
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting result {result_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/results/electorate/{electorate}")
+async def api_results_by_electorate(electorate: str):
+    """
+    Get results for a specific electorate
+    """
+    try:
+        db = SessionLocal()
+        try:
+            results = db.query(Result).filter_by(electorate=electorate).order_by(Result.timestamp.desc()).all()
+            return {
+                "status": "success",
+                "results": [
+                    {
+                        "id": r.id,
+                        "timestamp": r.timestamp.isoformat(),
+                        "electorate": r.electorate,
+                        "booth_name": r.booth_name,
+                        "image_url": r.image_url,
+                        "data": r.data
+                    } for r in results
+                ]
+            }
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error getting results for electorate {electorate}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/results/count/{electorate}")
+async def api_results_count(electorate: str):
+    """
+    Count results for a specific electorate
+    """
+    try:
+        db = SessionLocal()
+        try:
+            count = db.query(Result).filter_by(electorate=electorate).count()
+            return {
+                "status": "success",
+                "count": count
+            }
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error counting results for electorate {electorate}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/tcp-candidates/{electorate}")
+async def api_tcp_candidates(electorate: str):
+    """
+    Get TCP candidates for a specific electorate
+    """
+    try:
+        db = SessionLocal()
+        try:
+            candidates = db.query(TCPCandidate).filter_by(electorate=electorate).order_by(TCPCandidate.position).all()
+            return {
+                "status": "success",
+                "candidates": [
+                    {
+                        "id": c.id,
+                        "electorate": c.electorate,
+                        "candidate_id": c.candidate_id,
+                        "candidate_name": c.candidate_name,
+                        "position": c.position
+                    } for c in candidates
+                ]
+            }
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error getting TCP candidates for electorate {electorate}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/tcp-candidates/{electorate}")
+async def api_update_tcp_candidates(electorate: str, request: Request):
+    """
+    Update TCP candidates for a specific electorate
+    """
+    try:
+        data = await request.json()
+        candidates_data = data.get("candidates", [])
+        
+        db = SessionLocal()
+        try:
+            db.query(TCPCandidate).filter_by(electorate=electorate).delete()
+            
+            # Add new TCP candidates
+            for candidate in candidates_data:
+                tcp_candidate = TCPCandidate(
+                    electorate=electorate,
+                    candidate_id=candidate.get("candidate_id"),
+                    candidate_name=candidate.get("candidate_name"),
+                    position=candidate.get("position")
+                )
+                db.add(tcp_candidate)
+            
+            db.commit()
+            
+            try:
+                async with httpx.AsyncClient() as client:
+                    await client.post(
+                        FLASK_APP_URL,
+                        json={
+                            "electorate": electorate,
+                            "action": "tcp_update"
+                        }
+                    )
+            except Exception as e:
+                logger.error(f"Failed to notify Flask app: {e}")
+            
+            return {"status": "success", "message": "TCP candidates updated successfully"}
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error updating TCP candidates: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error updating TCP candidates: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/electorates")
+async def api_electorates():
+    """
+    Get all unique electorates from the candidates table
+    """
+    try:
+        db_path = SQLALCHEMY_DATABASE_URL.replace('sqlite://', '')
+        logger.info(f"Connecting to database at: {db_path}")
+        logger.info(f"Current working directory: {os.getcwd()}")
+        
+        db_file = Path(db_path)
+        if db_file.exists():
+            logger.info(f"Database file exists: {db_file}")
+            logger.info(f"File permissions: {oct(os.stat(db_file).st_mode)}")
+            logger.info(f"File owner: {os.stat(db_file).st_uid}")
+        else:
+            logger.warning(f"Database file does not exist: {db_file}")
+            parent_dir = db_file.parent
+            if parent_dir.exists():
+                logger.info(f"Parent directory exists: {parent_dir}")
+                logger.info(f"Directory permissions: {oct(os.stat(parent_dir).st_mode)}")
+                logger.info(f"Directory contents: {list(parent_dir.iterdir())}")
+            else:
+                logger.warning(f"Parent directory does not exist: {parent_dir}")
+        
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT DISTINCT electorate FROM candidates ORDER BY electorate")
+        electorates = [row[0] for row in cursor.fetchall()]
+        conn.close()
+        
+        return {
+            "status": "success",
+            "electorates": electorates
+        }
+    except Exception as e:
+        logger.error(f"Error getting electorates: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error details: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/candidates")
+async def api_candidates():
+    """
+    Get all candidates
+    """
+    try:
+        db_path = SQLALCHEMY_DATABASE_URL.replace('sqlite://', '')
+        logger.info(f"Connecting to database at: {db_path}")
+        logger.info(f"Current working directory: {os.getcwd()}")
+        
+        db_file = Path(db_path)
+        if db_file.exists():
+            logger.info(f"Database file exists: {db_file}")
+            logger.info(f"File permissions: {oct(os.stat(db_file).st_mode)}")
+            logger.info(f"File owner: {os.stat(db_file).st_uid}")
+        else:
+            logger.warning(f"Database file does not exist: {db_file}")
+            parent_dir = db_file.parent
+            if parent_dir.exists():
+                logger.info(f"Parent directory exists: {parent_dir}")
+                logger.info(f"Directory permissions: {oct(os.stat(parent_dir).st_mode)}")
+                logger.info(f"Directory contents: {list(parent_dir.iterdir())}")
+            else:
+                logger.warning(f"Parent directory does not exist: {parent_dir}")
+        
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT * FROM candidates ORDER BY electorate, surname")
+        columns = [col[0] for col in cursor.description]
+        candidates = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        conn.close()
+        
+        return {
+            "status": "success",
+            "candidates": candidates
+        }
+    except Exception as e:
+        logger.error(f"Error getting candidates: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error details: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/candidates/{electorate}")
+async def api_candidates_by_electorate(electorate: str, candidate_type: str = "house"):
+    """
+    Get candidates for a specific electorate
+    """
+    try:
+        conn = sqlite3.connect(SQLALCHEMY_DATABASE_URL.replace('sqlite://', ''))
+        cursor = conn.cursor()
+        
+        if candidate_type == "senate":
+            cursor.execute("SELECT * FROM candidates WHERE state = ? AND candidate_type = 'senate' ORDER BY surname", (electorate,))
+        else:
+            cursor.execute("SELECT * FROM candidates WHERE electorate = ? AND candidate_type = 'house' ORDER BY surname", (electorate,))
+        
+        columns = [col[0] for col in cursor.description]
+        candidates = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        conn.close()
+        
+        return {
+            "status": "success",
+            "candidates": candidates
+        }
+    except Exception as e:
+        logger.error(f"Error getting candidates for electorate {electorate}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/dashboard/{electorate}")
+async def api_dashboard(electorate: str):
+    """
+    Get all dashboard data for a specific electorate
+    """
+    try:
+        db = SessionLocal()
+        try:
+            booth_count = db.query(Result).filter_by(electorate=electorate).count()
+            
+            from utils.booth_results_processor import get_booth_results_for_division
+            historical_booths = get_booth_results_for_division(electorate)
+            total_booths = len(historical_booths) if historical_booths else 0
+            
+            results = db.query(Result).filter_by(electorate=electorate).order_by(Result.timestamp.desc()).all()
+            
+            booth_results = []
+            primary_votes = {}
+            
+            for result in results:
+                booth_data = {
+                    "id": result.id,
+                    "timestamp": result.timestamp.isoformat(),
+                    "booth_name": result.booth_name,
+                    "image_url": result.image_url
+                }
+                
+                if result.data and "primary_votes" in result.data:
+                    booth_data["primary_votes"] = result.data["primary_votes"]
+                    
+                    for candidate, votes in result.data["primary_votes"].items():
+                        if candidate not in primary_votes:
+                            primary_votes[candidate] = {"votes": 0, "percentage": 0}
+                        primary_votes[candidate]["votes"] += votes
+                
+                booth_results.append(booth_data)
+            
+            total_primary_votes = sum(candidate["votes"] for candidate in primary_votes.values())
+            if total_primary_votes > 0:
+                for candidate in primary_votes:
+                    primary_votes[candidate]["percentage"] = (primary_votes[candidate]["votes"] / total_primary_votes) * 100
+            
+            # Get TCP candidates
+            tcp_candidates = db.query(TCPCandidate).filter_by(electorate=electorate).order_by(TCPCandidate.position).all()
+            tcp_candidate_names = [c.candidate_name for c in tcp_candidates]
+            
+            tcp_votes = {}
+            for tcp_candidate in tcp_candidate_names:
+                tcp_votes[tcp_candidate] = 0
+            
+            for result in results:
+                if result.data and "two_candidate_preferred" in result.data:
+                    for tcp_candidate, votes in result.data["two_candidate_preferred"].items():
+                        if tcp_candidate in tcp_votes:
+                            tcp_votes[tcp_candidate] += sum(votes.values())
+            
+            return {
+                "status": "success",
+                "booth_count": booth_count,
+                "total_booths": total_booths,
+                "completion_percentage": (booth_count / total_booths * 100) if total_booths > 0 else 0,
+                "booth_results": booth_results,
+                "primary_votes": primary_votes,
+                "tcp_candidates": [
+                    {
+                        "id": c.id,
+                        "electorate": c.electorate,
+                        "candidate_id": c.candidate_id,
+                        "candidate_name": c.candidate_name,
+                        "position": c.position
+                    } for c in tcp_candidates
+                ],
+                "tcp_votes": tcp_votes
+            }
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error getting dashboard data for electorate {electorate}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

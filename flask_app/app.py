@@ -6,7 +6,6 @@ import datetime
 import base64
 from pathlib import Path
 from flask import Flask, render_template, jsonify, request, redirect, url_for, flash, session, get_flashed_messages
-from flask_sqlalchemy import SQLAlchemy
 from flask_socketio import SocketIO, emit
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -23,12 +22,31 @@ from utils.booth_results_processor import process_and_load_booth_results, get_bo
 
 load_dotenv()
 
+FASTAPI_URL = os.environ.get('FASTAPI_URL', 'http://results_fastapi_app:8000')
+
+def api_call(endpoint, method='get', data=None, params=None):
+    """Make an API call to the FastAPI service"""
+    url = f"{FASTAPI_URL}{endpoint}"
+    try:
+        if method.lower() == 'get':
+            response = requests.get(url, params=params)
+        elif method.lower() == 'post':
+            response = requests.post(url, json=data)
+        elif method.lower() == 'delete':
+            response = requests.delete(url)
+        else:
+            raise ValueError(f"Unsupported HTTP method: {method}")
+        
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"API call error: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 app = Flask(__name__)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////app/results.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_key_for_amalfi_results')
-db = SQLAlchemy(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 login_manager = LoginManager(app)
@@ -37,21 +55,22 @@ login_manager.login_message_category = 'info'
 
 app.config['IS_ADMIN'] = False
 
-class Result(db.Model):
-    __tablename__ = "results"
+class Result:
+    """Plain Python class to replace SQLAlchemy model"""
     
-    id = db.Column(db.Integer, primary_key=True)
-    image_url = db.Column(db.String(500))
-    timestamp = db.Column(db.DateTime, server_default=db.func.now())
-    electorate = db.Column(db.String(100), index=True)
-    booth_name = db.Column(db.String(100), index=True)
-    data = db.Column(db.JSON)
+    def __init__(self, id=None, image_url=None, timestamp=None, electorate=None, booth_name=None, data=None):
+        self.id = id
+        self.image_url = image_url
+        self.timestamp = timestamp
+        self.electorate = electorate
+        self.booth_name = booth_name
+        self.data = data
 
     def to_dict(self):
         return {
             'id': self.id,
             'image_url': self.image_url,
-            'timestamp': self.timestamp.isoformat(),
+            'timestamp': self.timestamp.isoformat() if isinstance(self.timestamp, datetime.datetime) else self.timestamp,
             'electorate': self.electorate,
             'booth_name': self.booth_name,
             'data': self.data
@@ -75,14 +94,15 @@ class Result(db.Model):
             return self.data['totals']
         return {'formal': None, 'informal': None, 'total': None}
 
-class TCPCandidate(db.Model):
-    __tablename__ = "tcp_candidates"
+class TCPCandidate:
+    """Plain Python class to replace SQLAlchemy model"""
     
-    id = db.Column(db.Integer, primary_key=True)
-    electorate = db.Column(db.String(100), index=True)
-    candidate_id = db.Column(db.Integer)
-    candidate_name = db.Column(db.String(100))
-    position = db.Column(db.Integer)  # 1 or 2 for the two TCP candidates
+    def __init__(self, id=None, electorate=None, candidate_id=None, candidate_name=None, position=None):
+        self.id = id
+        self.electorate = electorate
+        self.candidate_id = candidate_id
+        self.candidate_name = candidate_name
+        self.position = position
     
     def to_dict(self):
         return {
@@ -154,43 +174,34 @@ with app.app_context():
     db.create_all()
     create_root_user()
 
+
 def get_all_electorates():
-    """Get all unique electorates from the candidates table"""
+    """Get all unique electorates from the candidates table via FastAPI"""
     try:
-        conn = sqlite3.connect(app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite://', ''))
-        cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT electorate FROM candidates ORDER BY electorate")
-        electorates = [row[0] for row in cursor.fetchall()]
-        conn.close()
-        return electorates
+        response = api_call("/api/electorates")
+        if response.get("status") == "success":
+            return response.get("electorates", [])
+        else:
+            app.logger.error(f"Error getting electorates: {response.get('message')}")
+            return []
     except Exception as e:
         app.logger.error(f"Error getting electorates: {e}")
         return []
 
 def get_candidates(electorate=None, candidate_type=None):
-    """Get candidates from the database with optional filtering"""
+    """Get candidates from the FastAPI service with optional filtering"""
     try:
-        conn = sqlite3.connect(app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite://', ''))
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        query = "SELECT * FROM candidates WHERE 1=1"
-        params = []
-        
         if electorate:
-            query += " AND electorate = ?"
-            params.append(electorate)
+            params = {"candidate_type": candidate_type} if candidate_type else {}
+            response = api_call(f"/api/candidates/{electorate}", params=params)
+        else:
+            response = api_call("/api/candidates")
         
-        if candidate_type:
-            query += " AND candidate_type = ?"
-            params.append(candidate_type)
-        
-        query += " ORDER BY electorate, ballot_position"
-        
-        cursor.execute(query, params)
-        candidates = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return candidates
+        if response.get("status") == "success":
+            return response.get("candidates", [])
+        else:
+            app.logger.error(f"Error getting candidates: {response.get('message')}")
+            return []
     except Exception as e:
         app.logger.error(f"Error getting candidates: {e}")
         return []
@@ -223,17 +234,55 @@ def get_last_updated_time():
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    """Redirect to dashboard as the default landing page"""
+    return redirect(url_for('get_dashboard'))
 
 @app.route('/results')
 def get_results():
-    results = Result.query.order_by(Result.timestamp.desc()).all()
-    return render_template('results.html', results=results)
+    """Get all results page using FastAPI endpoint"""
+    response = api_call("/api/results")
+    results = []
+    if response.get("status") == "success":
+        for r in response.get("results", []):
+            result = Result(
+                id=r["id"],
+                image_url=r["image_url"],
+                timestamp=datetime.datetime.fromisoformat(r["timestamp"]),
+                electorate=r["electorate"],
+                booth_name=r["booth_name"],
+                data=r["data"]
+            )
+            results.append(result)
+    
+    messages = []
+    for category, message in get_flashed_messages(with_categories=True):
+        messages.append((category, message))
+    
+    return render_template('results_new.html', results=results, messages=messages)
 
 @app.route('/results/<int:result_id>')
 def get_result_detail(result_id):
-    result = Result.query.get_or_404(result_id)
-    return render_template('result_detail.html', result=result)
+    """Get result detail page using FastAPI endpoint"""
+    response = api_call(f"/api/results/{result_id}")
+    if response.get("status") == "success":
+        r = response.get("result")
+        result = Result(
+            id=r["id"],
+            image_url=r["image_url"],
+            timestamp=datetime.datetime.fromisoformat(r["timestamp"]),
+            electorate=r["electorate"],
+            booth_name=r["booth_name"],
+            data=r["data"]
+        )
+        
+        messages = []
+        for category, message in get_flashed_messages(with_categories=True):
+            messages.append((category, message))
+        
+        return render_template('result_detail_new.html', result=result, messages=messages)
+    else:
+        return render_template('error.html', error=f"Result not found: {response.get('message')}")
+
 
 @app.route('/candidates')
 def get_candidates_page():
@@ -244,13 +293,18 @@ def get_candidates_page():
     electorates = get_all_electorates()
     last_updated = get_last_updated_time()
     
+    messages = []
+    for category, message in get_flashed_messages(with_categories=True):
+        messages.append((category, message))
+    
     return render_template(
-        'candidates.html', 
+        'candidates_new.html', 
         candidates=candidates_data, 
         electorates=electorates,
         electorate=electorate,
         candidate_type=candidate_type,
-        last_updated=last_updated
+        last_updated=last_updated,
+        messages=messages
     )
 
 @app.route('/update-aec-data')
@@ -269,13 +323,19 @@ def update_aec_data():
 
 @app.route('/api/results')
 def api_results():
-    results = Result.query.order_by(Result.timestamp.desc()).all()
-    return jsonify([result.to_dict() for result in results])
+    """Proxy API call to FastAPI service for all results"""
+    response = api_call("/api/results")
+    if response.get("status") == "success":
+        return jsonify(response.get("results", []))
+    return jsonify([])
 
 @app.route('/api/results/<int:result_id>')
 def api_result_detail(result_id):
-    result = Result.query.get_or_404(result_id)
-    return jsonify(result.to_dict())
+    """Proxy API call to FastAPI service for a specific result"""
+    response = api_call(f"/api/results/{result_id}")
+    if response.get("status") == "success":
+        return jsonify(response.get("result", {}))
+    return jsonify({})
 
 @app.route('/api/candidates')
 def api_candidates():
@@ -303,13 +363,27 @@ def get_booth_results_page():
         if booth and booth.strip():
             booth_results = [r for r in booth_results if booth.lower() in r['polling_place_name'].lower()]
     
-    current_results_query = Result.query.order_by(Result.timestamp.desc())
+    # Get results from FastAPI service
+    params = {}
     if electorate:
-        current_results_query = current_results_query.filter(Result.electorate == electorate)
+        params['electorate'] = electorate
     if booth:
-        current_results_query = current_results_query.filter(Result.booth_name.like(f"%{booth}%"))
+        params['booth'] = booth
     
-    current_results = current_results_query.all()
+    response = api_call("/api/results", params=params)
+    current_results = []
+    
+    if response.get("status") == "success":
+        results_data = response.get("results", [])
+        for result_data in results_data:
+            result = Result()
+            result.id = result_data.get("id")
+            result.timestamp = datetime.datetime.fromisoformat(result_data.get("timestamp"))
+            result.electorate = result_data.get("electorate")
+            result.booth_name = result_data.get("booth_name")
+            result.image_url = result_data.get("image_url")
+            result.data = result_data.get("data", {})
+            current_results.append(result)
     
     if booth_results and current_results:
         for booth_result in booth_results:
@@ -341,14 +415,19 @@ def get_booth_results_page():
                             booth_result
                         )
     
+    messages = []
+    for category, message in get_flashed_messages(with_categories=True):
+        messages.append((category, message))
+    
     return render_template(
-        'booth_results.html',
+        'booth_results_new.html',
         booth_results=booth_results,
         current_results=current_results,
         electorates=electorates,
         electorate=electorate,
         booth=booth,
-        last_updated=last_updated
+        last_updated=last_updated,
+        messages=messages
     )
 
 @app.route('/update-booth-data')
@@ -410,13 +489,21 @@ def get_dashboard(electorate=None):
     total_booths = {}
     
     for e in electorates:
-        booth_counts[e] = Result.query.filter_by(electorate=e).count()
+        # Get result count from FastAPI service
+        response = api_call(f"/api/results/count/{e}")
+        booth_counts[e] = response.get("count", 0) if response.get("status") == "success" else 0
         
         historical_booths = get_booth_results_for_division(e)
         total_booths[e] = len(historical_booths) if historical_booths else 0
     
+    if not electorate:
+        electorate = session.get('default_division')
+        
     if not electorate and electorates:
         electorate = electorates[0]
+        
+    if electorate:
+        session['last_viewed_division'] = electorate
     
     # Get booth results for the selected electorate
     booth_results = []
@@ -424,8 +511,21 @@ def get_dashboard(electorate=None):
     tcp_votes = {}
     
     if electorate:
-        # Get current results for this electorate
-        results = Result.query.filter_by(electorate=electorate).order_by(Result.timestamp.desc()).all()
+        # Get current results for this electorate from FastAPI service
+        response = api_call(f"/api/results", params={"electorate": electorate})
+        results = []
+        
+        if response.get("status") == "success":
+            results_data = response.get("results", [])
+            for result_data in results_data:
+                result = Result()
+                result.id = result_data.get("id")
+                result.timestamp = datetime.datetime.fromisoformat(result_data.get("timestamp"))
+                result.electorate = result_data.get("electorate")
+                result.booth_name = result_data.get("booth_name")
+                result.image_url = result_data.get("image_url")
+                result.data = result_data.get("data", {})
+                results.append(result)
         
         for result in results:
             booth_data = result.to_dict()
@@ -468,7 +568,20 @@ def get_dashboard(electorate=None):
             for candidate in primary_votes:
                 primary_votes[candidate]['percentage'] = (primary_votes[candidate]['votes'] / total_primary_votes) * 100
         
-        tcp_candidates = TCPCandidate.query.filter_by(electorate=electorate).order_by(TCPCandidate.position).all()
+        # Get TCP candidates from FastAPI service
+        response = api_call(f"/api/tcp-candidates/{electorate}")
+        tcp_candidates = []
+        
+        if response.get("status") == "success":
+            candidates_data = response.get("candidates", [])
+            for candidate_data in candidates_data:
+                candidate = TCPCandidate()
+                candidate.id = candidate_data.get("id")
+                candidate.electorate = candidate_data.get("electorate")
+                candidate.candidate_name = candidate_data.get("candidate_name")
+                candidate.position = candidate_data.get("position")
+                tcp_candidates.append(candidate)
+                
         tcp_candidate_names = [c.candidate_name for c in tcp_candidates]
         
         for result in results:
@@ -516,6 +629,7 @@ def get_dashboard(electorate=None):
 def admin_tcp_candidates(electorate):
     """Admin page to set TCP candidates for an electorate"""
     if not current_user.is_admin:
+
         flash("Admin access required", "error")
         return redirect(url_for('get_dashboard'))
     
@@ -526,32 +640,23 @@ def admin_tcp_candidates(electorate):
             flash("You must select exactly two candidates for TCP counting", "error")
         else:
             try:
-                # Delete existing TCP candidates for this electorate
-                TCPCandidate.query.filter_by(electorate=electorate).delete()
+                candidate_ids = [int(cid) for cid in candidate_ids]
                 
-                candidates_data = get_candidates(electorate, 'house')
+                # Use FastAPI endpoint to update TCP candidates
+                response = api_call(
+                    f"/api/tcp-candidates/{electorate}", 
+                    method="post", 
+                    data={"candidate_ids": candidate_ids}
+                )
                 
-                # Add new TCP candidates
-                for position, candidate_id in enumerate(candidate_ids, 1):
-                    candidate_id = int(candidate_id)
-                    candidate = next((c for c in candidates_data if c['id'] == candidate_id), None)
-                    
-                    if candidate:
-                        tcp_candidate = TCPCandidate(
-                            electorate=electorate,
-                            candidate_id=candidate_id,
-                            candidate_name=candidate['name'],
-                            position=position
-                        )
-                        db.session.add(tcp_candidate)
-                
-                db.session.commit()
-                flash("TCP candidates updated successfully", "success")
-                
-                socketio.emit('tcp_update', {'electorate': electorate}, namespace='/dashboard')
+                if response.get("status") == "success":
+                    flash("TCP candidates updated successfully", "success")
+                    socketio.emit('tcp_update', {'electorate': electorate}, namespace='/dashboard')
+                else:
+                    app.logger.error(f"Error setting TCP candidates: {response.get('message')}")
+                    flash(f"Error setting TCP candidates: {response.get('message')}", "error")
                 
             except Exception as e:
-                db.session.rollback()
                 app.logger.error(f"Error setting TCP candidates: {e}")
                 flash(f"Error setting TCP candidates: {str(e)}", "error")
         
@@ -560,138 +665,92 @@ def admin_tcp_candidates(electorate):
     # Get candidates for this electorate
     candidates = get_candidates(electorate, 'house')
     
-    # Add current votes to candidates
-    results = Result.query.filter_by(electorate=electorate).all()
+    # Get candidate votes from FastAPI
+    response = api_call(f"/api/dashboard/{electorate}/candidate-votes")
     candidate_votes = {}
-    
-    for result in results:
-        primary_votes = result.get_primary_votes()
-        for candidate, votes in primary_votes.items():
-            if candidate in candidate_votes:
-                candidate_votes[candidate] += votes
-            else:
-                candidate_votes[candidate] = votes
+    if response.get("status") == "success":
+        candidate_votes = response.get("candidate_votes", {})
     
     for candidate in candidates:
         candidate['votes'] = candidate_votes.get(candidate['name'], 0)
     
-    # Get current TCP candidates
-    tcp_candidates = TCPCandidate.query.filter_by(electorate=electorate).order_by(TCPCandidate.position).all()
-    tcp_candidate_names = [c.candidate_name for c in tcp_candidates]
+    # Get current TCP candidates from FastAPI
+    response = api_call(f"/api/tcp-candidates/{electorate}")
+    tcp_candidate_names = []
+    if response.get("status") == "success":
+        tcp_candidates = response.get("tcp_candidates", [])
+        tcp_candidate_names = [c["candidate_name"] for c in tcp_candidates]
     
     messages = []
     for category, message in get_flashed_messages(with_categories=True):
         messages.append((category, message))
     
     return render_template(
-        'admin_tcp_candidates.html',
+        'admin_tcp_candidates_new.html',
         electorate=electorate,
         candidates=candidates,
         tcp_candidates=tcp_candidate_names,
-        messages=messages
+        messages=messages,
+        electorates=get_all_electorates(),
+        selected_electorate=electorate,
+        is_admin=app.config.get('IS_ADMIN', False)
     )
 
 @app.route('/api/dashboard/<electorate>')
 def api_dashboard(electorate):
-    """API endpoint for dashboard data"""
-    # Get booth counts
-    booth_count = Result.query.filter_by(electorate=electorate).count()
+    """API endpoint for dashboard data using FastAPI endpoints"""
+    # Get dashboard data from FastAPI
+    response = api_call(f"/api/dashboard/{electorate}")
+    
+    if response.get("status") != "success":
+        app.logger.error(f"Error getting dashboard data: {response.get('message')}")
+        return jsonify({
+            'booth_count': 0,
+            'total_booths': 0,
+            'last_updated': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'primary_votes': [],
+            'tcp_votes': [],
+            'booth_results': []
+        })
+    
+    dashboard_data = response.get("data", {})
     
     historical_booths = get_booth_results_for_division(electorate)
     total_booths = len(historical_booths) if historical_booths else 0
     
-    # Get booth results for the selected electorate
-    results = Result.query.filter_by(electorate=electorate).order_by(Result.timestamp.desc()).all()
-    
-    booth_results = []
-    primary_votes = {}
-    tcp_votes = {}
-    
-    for result in results:
-        booth_data = result.to_dict()
-        booth_data['totals'] = result.get_totals()
-        
-        historical_booth = get_booth_results_for_polling_place(electorate, result.booth_name)
-        if historical_booth:
-            tcp_data = result.get_tcp_votes()
-            if tcp_data and len(tcp_data) >= 2:
-                liberal_votes = list(tcp_data.values())[0]
-                labor_votes = list(tcp_data.values())[1]
-                total_votes = liberal_votes + labor_votes
-                
-                if total_votes > 0:
-                    liberal_pct = (liberal_votes / total_votes) * 100
-                    labor_pct = (labor_votes / total_votes) * 100
-                    
-                    current_result_data = {
-                        'liberal_national_percentage': liberal_pct,
-                        'labor_percentage': labor_pct
-                    }
-                    
-                    booth_data['swing'] = calculate_swing(
-                        current_result_data, 
-                        historical_booth
-                    )
-        
-        booth_results.append(booth_data)
-    
-    for result in results:
-        primary_result = result.get_primary_votes()
-        for candidate, votes in primary_result.items():
-            if candidate in primary_votes:
-                primary_votes[candidate]['votes'] += votes
-            else:
-                primary_votes[candidate] = {'votes': votes, 'percentage': 0}
-    
-    total_primary_votes = sum(item['votes'] for item in primary_votes.values())
-    if total_primary_votes > 0:
-        for candidate in primary_votes:
-            primary_votes[candidate]['percentage'] = (primary_votes[candidate]['votes'] / total_primary_votes) * 100
-    
-    tcp_candidates = TCPCandidate.query.filter_by(electorate=electorate).order_by(TCPCandidate.position).all()
-    tcp_candidate_names = [c.candidate_name for c in tcp_candidates]
-    
-    for result in results:
-        tcp_result = result.get_tcp_votes()
-        
-        if tcp_candidate_names and len(tcp_candidate_names) == 2:
-            for i, candidate in enumerate(tcp_candidate_names):
-                if i < len(tcp_result):
-                    votes = list(tcp_result.values())[i]
-                    if candidate in tcp_votes:
-                        tcp_votes[candidate]['votes'] += votes
-                    else:
-                        tcp_votes[candidate] = {'votes': votes, 'percentage': 0}
-        else:
-            for i, (candidate, votes) in enumerate(tcp_result.items()):
-                if i >= 2:  # Only use first two candidates
-                    break
-                if candidate in tcp_votes:
-                    tcp_votes[candidate]['votes'] += votes
-                else:
-                    tcp_votes[candidate] = {'votes': votes, 'percentage': 0}
-    
-    total_tcp_votes = sum(item['votes'] for item in tcp_votes.values())
-    if total_tcp_votes > 0:
-        for candidate in tcp_votes:
-            tcp_votes[candidate]['percentage'] = (tcp_votes[candidate]['votes'] / total_tcp_votes) * 100
-    
-    primary_votes_list = [
-        {'candidate': candidate, 'votes': data['votes'], 'percentage': data['percentage']}
-        for candidate, data in primary_votes.items()
-    ]
-    
-    tcp_votes_list = [
-        {'candidate': candidate, 'votes': data['votes'], 'percentage': data['percentage']}
-        for candidate, data in tcp_votes.items()
-    ]
+    booth_results = dashboard_data.get("booth_results", [])
+    for booth_data in booth_results:
+        if booth_data.get("booth_name"):
+            historical_booth = get_booth_results_for_polling_place(electorate, booth_data["booth_name"])
+            if historical_booth and "tcp_votes" in booth_data:
+                tcp_data = booth_data["tcp_votes"]
+                if tcp_data and len(tcp_data) >= 2:
+                    tcp_values = list(tcp_data.values())
+                    if len(tcp_values) >= 2:
+                        liberal_votes = tcp_values[0]
+                        labor_votes = tcp_values[1]
+                        total_votes = liberal_votes + labor_votes
+                        
+                        if total_votes > 0:
+                            liberal_pct = (liberal_votes / total_votes) * 100
+                            labor_pct = (labor_votes / total_votes) * 100
+                            
+                            current_result_data = {
+                                'liberal_national_percentage': liberal_pct,
+                                'labor_percentage': labor_pct
+                            }
+                            
+                            booth_data['swing'] = calculate_swing(
+                                current_result_data, 
+                                historical_booth
+                            )
     
     return jsonify({
-        'booth_count': booth_count,
+        'booth_count': dashboard_data.get("booth_count", 0),
         'total_booths': total_booths,
         'last_updated': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        'primary_votes': primary_votes_list,
-        'tcp_votes': tcp_votes_list,
+        'primary_votes': dashboard_data.get("primary_votes", []),
+        'tcp_votes': dashboard_data.get("tcp_votes", []),
         'booth_results': booth_results
     })
 
@@ -741,8 +800,21 @@ def admin_polling_places(division=None):
         booth_results = get_booth_results_for_division(division)
         polling_places = booth_results
     
-    # Get current results for this division
-    current_results = Result.query.filter_by(electorate=division).order_by(Result.timestamp.desc()).all()
+    # Get current results for this division from FastAPI service
+    response = api_call(f"/api/results", params={"electorate": division})
+    current_results = []
+    
+    if response.get("status") == "success":
+        results_data = response.get("results", [])
+        for result_data in results_data:
+            result = Result()
+            result.id = result_data.get("id")
+            result.timestamp = datetime.datetime.fromisoformat(result_data.get("timestamp"))
+            result.electorate = result_data.get("electorate")
+            result.booth_name = result_data.get("booth_name")
+            result.image_url = result_data.get("image_url")
+            result.data = result_data.get("data", {})
+            current_results.append(result)
     
     unreviewed_results = [r for r in current_results if not (r.data and r.data.get('reviewed'))]
     
@@ -765,6 +837,7 @@ def admin_polling_places(division=None):
 def admin_reset_results():
     """Reset results for testing purposes"""
     if not current_user.is_admin:
+
         flash("Admin access required", "error")
         return redirect(url_for('get_dashboard'))
     
@@ -773,25 +846,28 @@ def admin_reset_results():
     all_results = request.form.get('all_results') == 'true'
     
     try:
-        if all_results:
-            Result.query.delete()
-            flash("All results have been reset", "success")
-        elif division and booth_name:
-            Result.query.filter_by(electorate=division, booth_name=booth_name).delete()
-            flash(f"Results for {booth_name} in {division} have been reset", "success")
-        elif division:
-            Result.query.filter_by(electorate=division).delete()
-            flash(f"Results for {division} have been reset", "success")
-        else:
-            flash("Please specify what results to reset", "error")
-            return redirect(url_for('admin_polling_places', division=division))
-            
-        db.session.commit()
+        data = {
+            "division": division,
+            "booth_name": booth_name,
+            "all_results": all_results
+        }
         
-        if division:
-            socketio.emit('update', {'electorate': division}, namespace='/dashboard')
+        response = api_call("/api/results/reset", method="post", data=data)
+        
+        if response.get("status") == "success":
+            if all_results:
+                flash("All results have been reset", "success")
+            elif division and booth_name:
+                flash(f"Results for {booth_name} in {division} have been reset", "success")
+            elif division:
+                flash(f"Results for {division} have been reset", "success")
+            
+            if division:
+                socketio.emit('update', {'electorate': division}, namespace='/dashboard')
+        else:
+            app.logger.error(f"Error resetting results: {response.get('message')}")
+            flash(f"Error resetting results: {response.get('message')}", "error")
     except Exception as e:
-        db.session.rollback()
         app.logger.error(f"Error resetting results: {e}")
         flash(f"Error resetting results: {str(e)}", "error")
     
@@ -800,12 +876,28 @@ def admin_reset_results():
 @app.route('/admin/review-result/<int:result_id>', methods=['GET', 'POST'])
 @login_required
 def admin_review_result(result_id):
+
     """Admin page to review and approve a result"""
     if not current_user.is_admin:
+
         flash("Admin access required", "error")
         return redirect(url_for('get_dashboard'))
     
-    result = Result.query.get_or_404(result_id)
+    # Get result from FastAPI
+    response = api_call(f"/api/results/{result_id}")
+    if response.get("status") != "success":
+        flash(f"Error retrieving result: {response.get('message')}", "error")
+        return redirect(url_for('admin_polling_places'))
+    
+    r = response.get("result")
+    result = Result(
+        id=r["id"],
+        image_url=r["image_url"],
+        timestamp=datetime.datetime.fromisoformat(r["timestamp"]),
+        electorate=r["electorate"],
+        booth_name=r["booth_name"],
+        data=r["data"]
+    )
     
     if request.method == 'POST':
         action = request.form.get('action')
@@ -819,10 +911,19 @@ def admin_review_result(result_id):
                 result.data['reviewed_at'] = datetime.datetime.utcnow().isoformat()
                 db.session.commit()
                 flash("Result approved successfully", "success")
+
                 
                 socketio.emit('update', {'electorate': result.electorate}, namespace='/dashboard')
                 
+                api_call("/api/notify", method="post", data={
+                    "result_id": result_id,
+                    "electorate": result.electorate,
+                    "action": "review",
+                    "approved": action == "approve"
+                })
+                
                 return redirect(url_for('admin_polling_places', division=result.electorate))
+
             elif action == 'reject':
                 if not result.data:
                     result.data = {}
@@ -832,8 +933,12 @@ def admin_review_result(result_id):
                 db.session.commit()
                 flash("Result rejected", "warning")
                 return redirect(url_for('admin_polling_places', division=result.electorate))
+
+            else:
+                app.logger.error(f"Error reviewing result: {review_response.get('message')}")
+                flash(f"Error reviewing result: {review_response.get('message')}", "error")
+
         except Exception as e:
-            db.session.rollback()
             app.logger.error(f"Error reviewing result: {e}")
             flash(f"Error reviewing result: {str(e)}", "error")
     
@@ -842,9 +947,12 @@ def admin_review_result(result_id):
         messages.append((category, message))
     
     return render_template(
-        'admin_review_result.html',
+        'admin_review_result_new.html',
         result=result,
-        messages=messages
+        messages=messages,
+        electorates=get_all_electorates(),
+        selected_electorate=result.electorate,
+        is_admin=app.config.get('IS_ADMIN', False)
     )
 
 @app.route('/admin/panel', methods=['GET'])
@@ -866,10 +974,12 @@ def admin_panel(division=None):
         messages.append((category, message))
     
     return render_template(
-        'admin_panel.html',
+        'admin_panel_new.html',
         division=division,
         electorates=electorates,
-        messages=messages
+        messages=messages,
+        selected_electorate=division,
+        is_admin=app.config.get('IS_ADMIN', False)
     )
 
 @app.route('/api/notify', methods=['POST'])
@@ -894,6 +1004,18 @@ def api_notify():
                 'status': status
             }, namespace='/dashboard')
     
+
+@app.route('/set-default-division/<division>')
+def set_default_division(division):
+    """Set the default division for the user session"""
+    next_url = request.args.get('next', url_for('get_dashboard'))
+    
+    if division:
+        session['default_division'] = division
+        flash(f"Default division set to {division}", "success")
+    
+    return redirect(next_url)
+
     return jsonify({"status": "success"})
 
 @app.route('/login', methods=['GET', 'POST'])

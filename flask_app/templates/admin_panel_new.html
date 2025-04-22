@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Panel - Amalfi Results{% endblock %}
+
+{% block content %}
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h4 class="mb-0">Admin Panel for Division: {{ division }}</h4>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <form method="get" action="/admin/panel">
+                                <div class="mb-3">
+                                    <label for="division" class="form-label">Select Division</label>
+                                    <select class="form-select" id="division" name="division" onchange="this.form.submit()">
+                                        {% for electorate in electorates %}
+                                        <option value="{{ electorate }}" {% if division == electorate %}selected{% endif %}>{{ electorate }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="card mb-4">
+                                <div class="card-header">
+                                    <h5 class="card-title mb-0">Polling Places</h5>
+                                </div>
+                                <div class="card-body">
+                                    <p>Manage polling places and results for {{ division }}</p>
+                                    <a href="/admin/polling-places/{{ division|urlencode }}" class="btn btn-primary w-100">
+                                        Manage Polling Places
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-4">
+                            <div class="card mb-4">
+                                <div class="card-header">
+                                    <h5 class="card-title mb-0">TCP Candidates</h5>
+                                </div>
+                                <div class="card-body">
+                                    <p>Set the two-candidate preferred (TCP) candidates for {{ division }}</p>
+                                    <a href="/admin/tcp-candidates/{{ division|urlencode }}" class="btn btn-primary w-100">
+                                        Set TCP Candidates
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-4">
+                            <div class="card mb-4">
+                                <div class="card-header">
+                                    <h5 class="card-title mb-0">Data Management</h5>
+                                </div>
+                                <div class="card-body">
+                                    <p>Update candidate and booth data from AEC</p>
+                                    <a href="/update-aec-data" class="btn btn-outline-primary mb-2 w-100">
+                                        Update AEC Data
+                                    </a>
+                                    <a href="/update-booth-data" class="btn btn-outline-primary w-100">
+                                        Update Booth Data
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+{% endblock %}

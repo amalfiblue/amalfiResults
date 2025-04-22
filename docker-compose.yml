@@ -10,7 +10,7 @@ services:
     environment:
       - FLASK_APP=app.py
       - FLASK_ENV=production
-      - FASTAPI_URL=http://fastapi_app:8000
+      - FASTAPI_URL=http://results_fastapi_app:8000
     volumes:
       - ./flask_app:/app
     depends_on:
@@ -27,7 +27,7 @@ services:
       context: ./fastapi_app
       dockerfile: Dockerfile
     environment:
-      - FLASK_APP_URL=http://flask_app:5000/api/notify
+      - FLASK_APP_URL=http://results_flask_app:5000/api/notify
     volumes:
       - ./fastapi_app:/app
       - fastapi_data:/app/data

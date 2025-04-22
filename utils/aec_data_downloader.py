@@ -24,7 +24,10 @@ AEC_SENATE_CANDIDATES_URL = "https://aec.gov.au/election/files/data/senate-candi
 AEC_HOUSE_CANDIDATES_URL = "https://aec.gov.au/election/files/data/house-candidates.csv"
 
 DATA_DIR = Path(__file__).parent.parent / "data"
-DB_PATH = Path(__file__).parent.parent / "results.db"
+is_docker = os.path.exists("/.dockerenv") or os.path.isdir("/app/data")
+data_dir_path = "/app/data" if is_docker else "./data"
+DB_PATH = Path(f"{data_dir_path}/results.db")
+logger.info(f"Using database path: {DB_PATH}")
 
 
 def ensure_data_dir() -> None:
@@ -112,7 +115,9 @@ def create_candidates_table() -> None:
     """Create the candidates table in the SQLite database if it doesn't exist."""
     try:
         logger.info(f"Creating candidates table in database: {DB_PATH}")
-        conn = sqlite3.connect(DB_PATH)
+        db_path_str = str(DB_PATH)
+        logger.info(f"Database path as string: {db_path_str}")
+        conn = sqlite3.connect(db_path_str)
         cursor = conn.cursor()
         
         cursor.execute('''
