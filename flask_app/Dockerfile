@@ -17,7 +17,7 @@ RUN poetry export -f requirements.txt -o requirements.txt && \
 
 # Copy application code
 COPY . /app/
-
+COPY utils /app/utils
 # Create data directory for database
 RUN mkdir -p /app/data && chmod 777 /app/data
 
