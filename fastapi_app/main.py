@@ -615,12 +615,29 @@ async def load_reference_data():
         if parent_dir not in sys.path:
             logger.info(f"Adding parent directory to Python path: {parent_dir}")
             sys.path.append(parent_dir)
+            
+        logger.info(f"Current directory: {os.getcwd()}")
+        logger.info(f"Parent directory: {parent_dir}")
+        logger.info(f"Files in parent directory: {os.listdir(parent_dir)}")
+        
+        if os.path.exists("/.dockerenv"):
+            import shutil
+            utils_src = os.path.join(parent_dir, "utils")
+            utils_dest = os.path.join(os.getcwd(), "utils")
+            if os.path.exists(utils_src) and not os.path.exists(utils_dest):
+                logger.info(f"Copying utils module from {utils_src} to {utils_dest}")
+                shutil.copytree(utils_src, utils_dest)
         
         try:
-            from utils.aec_data_downloader import download_and_process_aec_data
-            candidates_result = download_and_process_aec_data()
+            try:
+                from utils.aec_data_downloader import download_and_process_aec_data
+                from utils.booth_results_processor import process_and_load_booth_results
+            except ImportError:
+                sys.path.insert(0, os.path.join(parent_dir, "utils"))
+                from aec_data_downloader import download_and_process_aec_data
+                from booth_results_processor import process_and_load_booth_results
             
-            from utils.booth_results_processor import process_and_load_booth_results
+            candidates_result = download_and_process_aec_data()
             booth_results = process_and_load_booth_results()
             
             return {
