@@ -1142,7 +1142,12 @@ def reject_user(user_id):
     return redirect(url_for('admin_users'))
 
 @app.route('/load-reference-data')
+@login_required
 def load_reference_data():
+    if not current_user.is_admin:
+        flash("Admin access required", "error")
+        return redirect(url_for('index'))
+        
     try:
         response = api_call("/admin/load-reference-data", method="GET")
         if response.get("status") == "success":
