@@ -15,9 +15,10 @@ RUN poetry config virtualenvs.create false
 RUN poetry export -f requirements.txt -o requirements.txt && \
     pip install -r requirements.txt
 
-# Copy application code
-COPY . /app/
-COPY utils /app/utils
+# Copy application code and utils
+COPY flask_app/ /app/
+COPY utils/ /app/utils/
+
 # Create data directory for database
 RUN mkdir -p /app/data && chmod 777 /app/data
 

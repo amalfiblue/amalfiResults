@@ -5,8 +5,8 @@ services:
     container_name: results_flask_app
     restart: always
     build:
-      context: ./flask_app
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: flask_app/Dockerfile
     environment:
       - FLASK_APP=app.py
       - FLASK_ENV=production
@@ -24,8 +24,8 @@ services:
     container_name: results_fastapi_app
     restart: always
     build:
-      context: ./fastapi_app
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: fastapi_app/Dockerfile
     environment:
       - FLASK_APP_URL=http://results_flask_app:5000/api/notify
     volumes:
