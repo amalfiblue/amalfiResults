@@ -8,6 +8,7 @@ from pathlib import Path
 from flask import Flask, render_template, jsonify, request, redirect, url_for, flash, session, get_flashed_messages
 from flask_socketio import SocketIO, emit
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import requests
@@ -47,6 +48,10 @@ def api_call(endpoint, method='get', data=None, params=None):
 app = Flask(__name__)
 
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_key_for_amalfi_results')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///amalfi_results.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+db = SQLAlchemy(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 login_manager = LoginManager(app)
@@ -935,8 +940,8 @@ def admin_review_result(result_id):
                 return redirect(url_for('admin_polling_places', division=result.electorate))
 
             else:
-                app.logger.error(f"Error reviewing result: {review_response.get('message')}")
-                flash(f"Error reviewing result: {review_response.get('message')}", "error")
+                app.logger.error(f"Error reviewing result: Unknown action {action}")
+                flash(f"Error reviewing result: Unknown action {action}", "error")
 
         except Exception as e:
             app.logger.error(f"Error reviewing result: {e}")
