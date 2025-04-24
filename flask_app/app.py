@@ -1151,9 +1151,14 @@ def load_reference_data():
     try:
         response = api_call("/admin/load-reference-data", method="GET")
         if response.get("status") == "success":
-            flash("Reference data loaded successfully!", "success")
+            details = response.get("details", {})
+            candidates_loaded = details.get("candidates_loaded", "Unknown")
+            booth_results = details.get("booth_results_loaded", "Unknown")
+            flash(f"Reference data loaded successfully! Candidates: {candidates_loaded}, Booth results: {booth_results}", "success")
         else:
-            flash(f"Failed to load reference data: {response.get('detail', 'Unknown error')}", "error")
+            error_detail = response.get("detail", "Unknown error")
+            app.logger.error(f"Failed to load reference data: {error_detail}")
+            flash(f"Failed to load reference data: {error_detail}", "error")
     except Exception as e:
         app.logger.error(f"Error loading reference data: {e}")
         flash(f"Error loading reference data: {str(e)}", "error")
