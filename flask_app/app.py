@@ -1141,6 +1141,20 @@ def reject_user(user_id):
     flash(f"User {user.email} rejected", "success")
     return redirect(url_for('admin_users'))
 
+@app.route('/load-reference-data')
+def load_reference_data():
+    try:
+        response = api_call("/admin/load-reference-data", method="GET")
+        if response.get("status") == "success":
+            flash("Reference data loaded successfully!", "success")
+        else:
+            flash(f"Failed to load reference data: {response.get('detail', 'Unknown error')}", "error")
+    except Exception as e:
+        app.logger.error(f"Error loading reference data: {e}")
+        flash(f"Error loading reference data: {str(e)}", "error")
+    
+    return redirect(url_for('admin_panel'))
+
 if __name__ == '__main__':
     socketio.run(app, debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), 
                  allow_unsafe_werkzeug=True, use_reloader=True, log_output=True)
