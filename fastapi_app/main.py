@@ -1067,7 +1067,7 @@ async def api_candidates():
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        cursor.execute("SELECT * FROM candidates ORDER BY electorate, surname")
+        cursor.execute("SELECT * FROM candidates ORDER BY electorate, candidate_name")
         columns = [col[0] for col in cursor.description]
         candidates = [dict(zip(columns, row)) for row in cursor.fetchall()]
         conn.close()
