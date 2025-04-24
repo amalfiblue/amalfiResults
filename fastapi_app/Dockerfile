@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y \
 RUN pip install poetry==1.5.1
 
 # Copy Poetry configuration
-COPY pyproject.toml /app/
+COPY fastapi_app/pyproject.toml /app/
 
 # Configure Poetry to not create a virtual environment
 RUN poetry config virtualenvs.create false

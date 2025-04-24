@@ -6,7 +6,7 @@ WORKDIR /app
 RUN pip install poetry==1.5.1 gunicorn==21.2.0
 
 # Copy Poetry configuration
-COPY pyproject.toml /app/
+COPY flask_app/pyproject.toml /app/
 
 # Configure Poetry to not create a virtual environment
 RUN poetry config virtualenvs.create false
