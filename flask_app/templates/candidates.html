@@ -169,18 +169,41 @@
     
     // Function to update the candidates table
     function updateCandidatesTable(candidates) {
-        const tableBody = document.querySelector('tbody');
-        const noResultsDiv = document.querySelector('.alert-info');
+        const cardBody = document.querySelector('.card-body');
+        
+        // Remove existing table or alert if present
+        const existingTable = cardBody.querySelector('.table-responsive');
+        if (existingTable) {
+            existingTable.remove();
+        }
+        
+        const existingAlert = cardBody.querySelector('.alert-info');
+        if (existingAlert) {
+            existingAlert.remove();
+        }
         
         if (candidates && candidates.length > 0) {
-            // Show table, hide no results message
-            document.querySelector('.table-responsive').style.display = 'block';
-            if (noResultsDiv) noResultsDiv.style.display = 'none';
+            // Create table structure
+            const tableResponsive = document.createElement('div');
+            tableResponsive.className = 'table-responsive';
             
-            // Clear existing rows
-            tableBody.innerHTML = '';
+            const table = document.createElement('table');
+            table.className = 'table table-striped';
             
-            // Add new rows
+            const thead = document.createElement('thead');
+            thead.innerHTML = `
+                <tr>
+                    <th>Ballot Position</th>
+                    <th>Candidate Name</th>
+                    <th>Party</th>
+                    <th>Electorate</th>
+                    <th>Type</th>
+                </tr>
+            `;
+            
+            const tbody = document.createElement('tbody');
+            
+            // Add rows
             candidates.forEach(candidate => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
@@ -190,21 +213,22 @@
                     <td>${candidate.electorate || ''}</td>
                     <td>${candidate.candidate_type === 'house' ? 'House of Representatives' : 'Senate'}</td>
                 `;
-                tableBody.appendChild(row);
+                tbody.appendChild(row);
             });
-        } else {
-            // Hide table, show no results message
-            document.querySelector('.table-responsive').style.display = 'none';
             
-            if (noResultsDiv) {
-                noResultsDiv.style.display = 'block';
-            } else {
-                const cardBody = document.querySelector('.card-body');
-                const alertDiv = document.createElement('div');
-                alertDiv.className = 'alert alert-info';
-                alertDiv.textContent = 'No candidates found. Please update the AEC data or adjust your filters.';
-                cardBody.appendChild(alertDiv);
-            }
+            // Assemble table
+            table.appendChild(thead);
+            table.appendChild(tbody);
+            tableResponsive.appendChild(table);
+            
+            // Add to DOM
+            cardBody.appendChild(tableResponsive);
+        } else {
+            // Show no results message
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-info';
+            alertDiv.textContent = 'No candidates found. Please update the AEC data or adjust your filters.';
+            cardBody.appendChild(alertDiv);
         }
     }
     
