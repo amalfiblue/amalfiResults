@@ -25,5 +25,5 @@ RUN mkdir -p /app/data && chmod 777 /app/data
 # Expose port
 EXPOSE 5000
 
-# Run the application with Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "app:app"]
+# Run the application with Gunicorn using eventlet worker for socket.io support
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--worker-class", "eventlet", "--workers", "1", "app:app"]

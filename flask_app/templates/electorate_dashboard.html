@@ -335,7 +335,14 @@
     });
     
     // Socket.IO for live updates
-    const socket = io('/dashboard');
+    const socketUrl = window.location.protocol === 'https:' ? 
+        'https://' + window.location.host : 
+        'http://' + window.location.host;
+    const socket = io(socketUrl + '/dashboard', {
+        path: '/socket.io',
+        transports: ['websocket', 'polling'],
+        reconnectionAttempts: 5
+    });
     let connectionStatus = document.createElement('div');
     connectionStatus.className = 'alert alert-info mt-2';
     connectionStatus.innerHTML = 'Connecting to live updates...';
@@ -397,14 +404,31 @@
     }
     
     function fetchDashboardData(electorate) {
-        fetch(`/api/dashboard/${encodeURIComponent(electorate)}`)
-            .then(response => response.json())
-            .then(data => {
-                updateDashboard(data);
-            })
-            .catch(error => {
-                console.error('Error fetching dashboard data:', error);
-            });
+        const apiUrl = window.location.protocol + '//' + window.location.host + 
+                       `/api/dashboard/${encodeURIComponent(electorate)}`;
+        
+        fetch(apiUrl, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+                'Cache-Control': 'no-cache'
+            },
+            credentials: 'same-origin'
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            updateDashboard(data);
+        })
+        .catch(error => {
+            console.error('Error fetching dashboard data:', error);
+            connectionStatus.className = 'alert alert-danger mt-2';
+            connectionStatus.innerHTML = 'Error fetching data: ' + error.message;
+        });
     }
     
     function updateDashboard(data) {
