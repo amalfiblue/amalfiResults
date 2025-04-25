@@ -404,16 +404,21 @@
     }
     
     function fetchDashboardData(electorate) {
-        const apiUrl = window.location.protocol + '//' + window.location.host + 
-                       `/api/dashboard/${encodeURIComponent(electorate)}`;
+        // Direct call to FastAPI endpoint
+        let apiUrl;
+        
+        // In production, use the API path which will be handled by nginx
+        apiUrl = `/api/dashboard/${encodeURIComponent(electorate)}`;
+        
+        // For development/testing with direct FastAPI access (uncomment if needed)
+        // apiUrl = `http://results_fastapi_app:8000/api/dashboard/${encodeURIComponent(electorate)}`;
         
         fetch(apiUrl, {
             method: 'GET',
             headers: {
                 'Accept': 'application/json',
                 'Cache-Control': 'no-cache'
-            },
-            credentials: 'same-origin'
+            }
         })
         .then(response => {
             if (!response.ok) {
