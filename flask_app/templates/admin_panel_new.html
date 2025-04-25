@@ -67,9 +67,9 @@
                                     <a href="/update-booth-data" class="btn btn-outline-primary mb-2 w-100">
                                         Update Booth Data
                                     </a>
-                                    <a href="/load-reference-data" class="btn btn-outline-primary w-100">
+                                    <button type="button" onclick="loadReferenceData()" class="btn btn-outline-primary w-100">
                                         Load Reference Data
-                                    </a>
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -82,4 +82,51 @@
 
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script>
+    // Function to load reference data directly from FastAPI
+    function loadReferenceData() {
+        if (confirm('Are you sure you want to load reference data? This may take a few minutes.')) {
+            // Show loading indicator
+            const btn = event.target;
+            const originalText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Loading...';
+            
+            // Direct API call to FastAPI
+            fetch('/api/admin/load-reference-data', {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json',
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.status === 'success') {
+                    const details = data.details || {};
+                    const candidatesLoaded = details.candidates_loaded || 'Unknown';
+                    const boothResults = details.booth_results_loaded || 'Unknown';
+                    alert(`Reference data loaded successfully! Candidates: ${candidatesLoaded}, Booth results: ${boothResults}`);
+                } else {
+                    const errorDetail = data.detail || 'Unknown error';
+                    alert(`Failed to load reference data: ${errorDetail}`);
+                }
+                // Reset button
+                btn.disabled = false;
+                btn.textContent = originalText;
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert(`Error loading reference data: ${error.message}`);
+                // Reset button
+                btn.disabled = false;
+                btn.textContent = originalText;
+            });
+        }
+    }
+</script>
 {% endblock %}

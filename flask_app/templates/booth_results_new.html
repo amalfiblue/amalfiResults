@@ -149,4 +149,173 @@
 
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script>
+    // Load booth results and current results directly from FastAPI when the page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        const electorate = document.getElementById('electorate').value;
+        const boothFilter = document.getElementById('booth').value;
+        
+        if (electorate) {
+            loadCurrentResults(electorate, boothFilter);
+        }
+    });
+    
+    // Function to load current results from FastAPI
+    function loadCurrentResults(electorate, booth) {
+        // Build query parameters
+        let params = new URLSearchParams();
+        if (electorate) {
+            params.append('electorate', electorate);
+        }
+        if (booth) {
+            params.append('booth', booth);
+        }
+        
+        // Fetch results from FastAPI
+        fetch(`/api/results?${params.toString()}`, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.status === 'success') {
+                updateCurrentResultsTable(data.results);
+                
+                // If we have booth results and current results, calculate swings
+                if (data.results.length > 0) {
+                    calculateSwings(data.results);
+                }
+            } else {
+                console.error('Error loading results:', data.message || 'Unknown error');
+            }
+        })
+        .catch(error => {
+            console.error('Error loading results:', error);
+        });
+    }
+    
+    // Function to update the current results table
+    function updateCurrentResultsTable(results) {
+        const currentResultsSection = document.querySelector('.card:nth-of-type(2)');
+        
+        if (results && results.length > 0) {
+            // Create or update the current results section
+            if (!currentResultsSection) {
+                const container = document.querySelector('.col-md-8');
+                const newSection = document.createElement('div');
+                newSection.className = 'card mt-3';
+                newSection.innerHTML = `
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Current Results</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Timestamp</th>
+                                        <th>Electorate</th>
+                                        <th>Booth</th>
+                                        <th>Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="currentResultsBody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(newSection);
+            }
+            
+            // Update the table body
+            const tableBody = document.getElementById('currentResultsBody') || 
+                              document.querySelector('.card:nth-of-type(2) tbody');
+            
+            if (tableBody) {
+                tableBody.innerHTML = '';
+                
+                results.forEach(result => {
+                    const row = document.createElement('tr');
+                    const timestamp = new Date(result.timestamp);
+                    
+                    row.innerHTML = `
+                        <td>${result.id}</td>
+                        <td>${timestamp.toLocaleString()}</td>
+                        <td>${result.electorate || ''}</td>
+                        <td>${result.booth_name || ''}</td>
+                        <td>
+                            <a href="/results/${result.id}" class="btn btn-sm btn-primary">
+                                View Details
+                            </a>
+                        </td>
+                    `;
+                    
+                    tableBody.appendChild(row);
+                });
+            }
+        } else if (currentResultsSection) {
+            // Hide the section if no results
+            currentResultsSection.style.display = 'none';
+        }
+    }
+    
+    // Function to calculate and display swings
+    function calculateSwings(currentResults) {
+        const boothRows = document.querySelectorAll('.table tbody tr');
+        
+        boothRows.forEach(row => {
+            const pollingPlaceName = row.querySelector('td:nth-child(2)').textContent;
+            const swingCell = row.querySelector('td:nth-child(7)');
+            
+            // Find matching result
+            const matchingResult = currentResults.find(r => 
+                r.booth_name && (
+                    pollingPlaceName.toLowerCase().includes(r.booth_name.toLowerCase()) || 
+                    r.booth_name.toLowerCase().includes(pollingPlaceName.toLowerCase())
+                )
+            );
+            
+            if (matchingResult && matchingResult.data && matchingResult.data.tcp_votes) {
+                const tcpVotes = matchingResult.data.tcp_votes;
+                const tcpKeys = Object.keys(tcpVotes);
+                
+                if (tcpKeys.length >= 2) {
+                    const liberalVotes = tcpVotes[tcpKeys[0]];
+                    const laborVotes = tcpVotes[tcpKeys[1]];
+                    const totalVotes = liberalVotes + laborVotes;
+                    
+                    if (totalVotes > 0) {
+                        const liberalPct = (liberalVotes / totalVotes) * 100;
+                        const laborPct = (laborVotes / totalVotes) * 100;
+                        
+                        // Get 2022 percentages from the row
+                        const liberal2022 = parseFloat(row.querySelector('td:nth-child(3)').textContent);
+                        const labor2022 = parseFloat(row.querySelector('td:nth-child(4)').textContent);
+                        
+                        // Calculate swing
+                        const swing = (laborPct - labor2022);
+                        
+                        // Update swing cell
+                        if (swing > 0) {
+                            swingCell.innerHTML = `<span class="text-danger">+${swing.toFixed(2)}% to ALP</span>`;
+                        } else if (swing < 0) {
+                            swingCell.innerHTML = `<span class="text-primary">${swing.toFixed(2)}% to LNP</span>`;
+                        } else {
+                            swingCell.innerHTML = 'No swing';
+                        }
+                    }
+                }
+            }
+        });
+    }
+</script>
 {% endblock %}

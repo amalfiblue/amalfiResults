@@ -49,15 +49,16 @@
                             </table>
                         </div>
                         <div class="col-md-6 text-end">
-                            <form method="post" action="/admin/review-result/{{ result.id }}" id="reviewForm">
-                                <input type="hidden" name="action" id="actionInput" value="">
-                                <button type="button" class="btn btn-success me-2" onclick="submitForm('approve')">
+                            <div id="reviewActions">
+                                <input type="hidden" id="resultId" value="{{ result.id }}">
+                                <input type="hidden" id="electorate" value="{{ result.electorate }}">
+                                <button type="button" class="btn btn-success me-2" onclick="reviewResult('approve')">
                                     Approve Result
                                 </button>
-                                <button type="button" class="btn btn-danger" onclick="submitForm('reject')">
+                                <button type="button" class="btn btn-danger" onclick="reviewResult('reject')">
                                     Reject Result
                                 </button>
-                            </form>
+                            </div>
                         </div>
                     </div>
                     
@@ -196,14 +197,109 @@
 
 {% block extra_js %}
 <script>
-    function submitForm(action) {
+    // Load result data directly from FastAPI when the page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        loadResultData();
+    });
+    
+    // Function to load result data from FastAPI
+    function loadResultData() {
+        const resultId = document.getElementById('resultId').value;
+        
+        fetch(`/api/results/${resultId}`, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.status === 'success') {
+                updateResultDisplay(data.result);
+            }
+        })
+        .catch(error => {
+            console.error('Error loading result data:', error);
+        });
+    }
+    
+    // Function to update the result display with data from FastAPI
+    function updateResultDisplay(result) {
+        // Update metadata
+        document.querySelector('td:nth-child(2)').textContent = result.id;
+        document.querySelector('tr:nth-child(2) td').textContent = result.timestamp;
+        document.querySelector('tr:nth-child(3) td').textContent = result.electorate || 'Unknown';
+        document.querySelector('tr:nth-child(4) td').textContent = result.booth_name || 'Unknown';
+        
+        // Update image
+        if (result.image_url) {
+            const imgContainer = document.querySelector('.card-body.text-center');
+            imgContainer.innerHTML = `
+                <div class="mb-3">
+                    <a href="${result.image_url}" target="_blank" class="btn btn-outline-primary mb-3">
+                        Open Image in New Tab
+                    </a>
+                </div>
+                <img src="${result.image_url}" alt="Tally Sheet" class="img-fluid border" style="max-height: 800px;">
+            `;
+        }
+        
+        // Update electorate hidden field
+        document.getElementById('electorate').value = result.electorate;
+        
+        // Update breadcrumb
+        const breadcrumbItems = document.querySelectorAll('.breadcrumb-item');
+        if (breadcrumbItems.length >= 3) {
+            breadcrumbItems[2].innerHTML = `<a href="/admin/polling-places/${result.electorate}">${result.electorate}</a>`;
+        }
+    }
+    
+    // Function to review a result (approve or reject)
+    function reviewResult(action) {
+        const resultId = document.getElementById('resultId').value;
+        const electorate = document.getElementById('electorate').value;
         const confirmMessage = action === 'approve' 
             ? 'Are you sure you want to approve this result?' 
             : 'Are you sure you want to reject this result?';
             
         if (confirm(confirmMessage)) {
-            document.getElementById('actionInput').value = action;
-            document.getElementById('reviewForm').submit();
+            // Direct API call to FastAPI
+            fetch(`/api/results/${resultId}/review`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    action: action,
+                    electorate: electorate,
+                    reviewed: true,
+                    approved: action === 'approve'
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.status === 'success') {
+                    alert(`Result ${action === 'approve' ? 'approved' : 'rejected'} successfully`);
+                    // Redirect to polling places page
+                    window.location.href = `/admin/polling-places/${electorate}`;
+                } else {
+                    alert(`Error reviewing result: ${data.message || 'Unknown error'}`);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert(`Error reviewing result: ${error.message}`);
+            });
         }
     }
 </script>

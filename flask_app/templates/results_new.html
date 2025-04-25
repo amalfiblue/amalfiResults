@@ -68,4 +68,106 @@
 
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script>
+    // Load results directly from FastAPI when the page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        loadResults();
+    });
+    
+    // Function to load results from FastAPI
+    function loadResults() {
+        fetch('/api/results', {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.status === 'success') {
+                updateResultsTable(data.results);
+            } else {
+                console.error('Error loading results:', data.message || 'Unknown error');
+            }
+        })
+        .catch(error => {
+            console.error('Error loading results:', error);
+        });
+    }
+    
+    // Function to update the results table with data from FastAPI
+    function updateResultsTable(results) {
+        const tableBody = document.querySelector('tbody');
+        const noResultsAlert = document.querySelector('.alert-info');
+        
+        if (results && results.length > 0) {
+            // Clear existing content
+            tableBody.innerHTML = '';
+            
+            // Hide no results message if it exists
+            if (noResultsAlert) {
+                noResultsAlert.style.display = 'none';
+            }
+            
+            // Add each result to the table
+            results.forEach(result => {
+                const row = document.createElement('tr');
+                
+                // Format timestamp
+                const timestamp = new Date(result.timestamp);
+                const formattedTimestamp = timestamp.toLocaleString();
+                
+                row.innerHTML = `
+                    <td>${result.id}</td>
+                    <td>${formattedTimestamp}</td>
+                    <td>
+                        ${result.image_url ? 
+                            `<a href="${result.image_url}" target="_blank">View Image</a>` : 
+                            'No image'}
+                    </td>
+                    <td>
+                        <a href="/results/${result.id}" class="btn btn-sm btn-primary">
+                            View Details
+                        </a>
+                        <button class="btn btn-sm btn-outline-secondary" 
+                                data-bs-toggle="collapse" 
+                                data-bs-target="#result-${result.id}">
+                            Raw Data
+                        </button>
+                        <div class="collapse mt-2" id="result-${result.id}">
+                            <div class="card card-body">
+                                <pre>${JSON.stringify(result.data, null, 2)}</pre>
+                            </div>
+                        </div>
+                    </td>
+                `;
+                
+                tableBody.appendChild(row);
+            });
+        } else {
+            // Show no results message
+            if (noResultsAlert) {
+                noResultsAlert.style.display = 'block';
+            } else {
+                const cardBody = document.querySelector('.card-body');
+                const table = document.querySelector('.table-responsive');
+                
+                if (table) {
+                    table.style.display = 'none';
+                }
+                
+                const alert = document.createElement('div');
+                alert.className = 'alert alert-info';
+                alert.textContent = 'No results found. Upload tally sheet images to see results here.';
+                
+                cardBody.appendChild(alert);
+            }
+        }
+    }
+</script>
 {% endblock %}

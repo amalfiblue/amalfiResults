@@ -138,13 +138,10 @@
                                             {% endif %}
                                         </td>
                                         <td>
-                                            <form method="post" action="/admin/reset-results" class="d-inline">
-                                                <input type="hidden" name="division" value="{{ division }}">
-                                                <input type="hidden" name="booth_name" value="{{ place.polling_place_name }}">
-                                                <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to reset results for {{ place.polling_place_name }}?')">
-                                                    Reset
-                                                </button>
-                                            </form>
+                                            <button type="button" class="btn btn-sm btn-outline-danger" 
+                                                onclick="resetBoothResults('{{ division }}', '{{ place.polling_place_name }}')">
+                                                Reset
+                                            </button>
                                         </td>
                                     </tr>
                                     {% endfor %}
@@ -166,7 +163,7 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <form method="post" action="/admin/reset-results" id="resetResultsForm">
+                    <div id="resetResultsForm">
                         <div class="mb-3">
                             <div class="form-check">
                                 <input class="form-check-input" type="radio" name="reset_option" id="resetDivision" value="division" checked>
@@ -181,12 +178,12 @@
                                 </label>
                             </div>
                         </div>
-                        <input type="hidden" name="division" value="{{ division }}">
-                        <input type="hidden" id="resetAllResults" name="all_results" value="false">
+                        <input type="hidden" id="resetDivisionValue" value="{{ division }}">
+                        <input type="hidden" id="resetAllResults" value="false">
                         <div class="text-danger mb-3">
                             Warning: This action cannot be undone!
                         </div>
-                    </form>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -198,19 +195,153 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // Function to reset results for a specific booth
+        function resetBoothResults(division, boothName) {
+            if (confirm(`Are you sure you want to reset results for ${boothName}?`)) {
+                // Direct API call to FastAPI
+                fetch('/api/results/reset', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        division: division,
+                        booth_name: boothName,
+                        all_results: false
+                    })
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.status === 'success') {
+                        alert(`Results for ${boothName} have been reset`);
+                        // Reload the page to show updated results
+                        window.location.reload();
+                    } else {
+                        alert(`Error resetting results: ${data.message || 'Unknown error'}`);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert(`Error resetting results: ${error.message}`);
+                });
+            }
+        }
+
+        // Function to submit the reset form from the modal
         function submitResetForm() {
             if (confirm('Are you sure you want to reset these results? This action cannot be undone!')) {
-                const form = document.getElementById('resetResultsForm');
                 const resetOption = document.querySelector('input[name="reset_option"]:checked').value;
+                const division = document.getElementById('resetDivisionValue').value;
+                const allResults = resetOption === 'all';
                 
-                if (resetOption === 'all') {
-                    document.getElementById('resetAllResults').value = 'true';
-                } else {
-                    document.getElementById('resetAllResults').value = 'false';
-                }
-                
-                form.submit();
+                // Direct API call to FastAPI
+                fetch('/api/results/reset', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        division: division,
+                        all_results: allResults
+                    })
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.status === 'success') {
+                        if (allResults) {
+                            alert('All results have been reset');
+                        } else {
+                            alert(`Results for ${division} have been reset`);
+                        }
+                        // Close the modal
+                        const modal = bootstrap.Modal.getInstance(document.getElementById('resetResultsModal'));
+                        modal.hide();
+                        // Reload the page to show updated results
+                        window.location.reload();
+                    } else {
+                        alert(`Error resetting results: ${data.message || 'Unknown error'}`);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert(`Error resetting results: ${error.message}`);
+                });
             }
+        }
+
+        // Load current results data when the page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            loadCurrentResults();
+        });
+
+        // Function to load current results from FastAPI
+        function loadCurrentResults() {
+            const division = document.querySelector('#division').value;
+            
+            // Direct API call to FastAPI to get results
+            fetch(`/api/results?electorate=${encodeURIComponent(division)}`, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json',
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.status === 'success') {
+                    updateResultsTable(data.results);
+                }
+            })
+            .catch(error => {
+                console.error('Error loading results:', error);
+            });
+        }
+
+        // Function to update the results table with data from FastAPI
+        function updateResultsTable(results) {
+            // Find all polling place rows
+            const rows = document.querySelectorAll('tbody tr');
+            
+            rows.forEach(row => {
+                const placeName = row.querySelector('td:first-child').textContent;
+                const resultCell = row.querySelector('td:nth-child(6)');
+                
+                // Clear existing content
+                resultCell.innerHTML = '';
+                
+                // Find matching result
+                const matchingResult = results.find(r => 
+                    r.booth_name && (placeName.toLowerCase().includes(r.booth_name.toLowerCase()) || 
+                    r.booth_name.toLowerCase().includes(placeName.toLowerCase()))
+                );
+                
+                if (matchingResult) {
+                    const viewLink = document.createElement('a');
+                    viewLink.href = `/results/${matchingResult.id}`;
+                    viewLink.className = 'btn btn-sm btn-primary';
+                    viewLink.textContent = 'View';
+                    resultCell.appendChild(viewLink);
+                } else {
+                    const badge = document.createElement('span');
+                    badge.className = 'badge bg-secondary';
+                    badge.textContent = 'No results';
+                    resultCell.appendChild(badge);
+                }
+            });
         }
     </script>
 </body>
