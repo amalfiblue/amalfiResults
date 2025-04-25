@@ -234,33 +234,9 @@ def get_all_electorates():
     return []
 
 def get_candidates(electorate=None, candidate_type=None):
-    """Get candidates from FastAPI service"""
-    if electorate:
-        fastapi_url = f"{FASTAPI_URL}/candidates/{electorate}"
-        if candidate_type:
-            fastapi_url += f"?candidate_type={candidate_type}"
-    else:
-        fastapi_url = f"{FASTAPI_URL}/candidates"
-        if candidate_type:
-            fastapi_url += f"?candidate_type={candidate_type}"
-    
-    print(f"Fetching candidates from: {fastapi_url}")
-    try:
-        response = requests.get(fastapi_url)
-        print(f"Response status: {response.status_code}")
-        candidates_data = []
-        
-        if response.status_code == 200:
-            data = response.json()
-            print(f"Response data: {data}")
-            if data.get('status') == 'success':
-                candidates_data = data.get('candidates', [])
-                print(f"Found {len(candidates_data)} candidates")
-        
-        return candidates_data
-    except Exception as e:
-        print(f"Error fetching candidates: {e}")
-        return []
+    """Get candidates - frontend directly queries FastAPI"""
+    # Return empty list - frontend will populate via direct API call
+    return []
 
 def get_last_updated_time():
     """Get the last updated time for AEC data"""
