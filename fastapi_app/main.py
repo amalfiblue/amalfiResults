@@ -34,7 +34,7 @@ app.add_middleware(
 )
 
 is_docker = os.path.exists("/.dockerenv") or os.path.isdir("/app/data")
-data_dir_path = "/app/data" if is_docker else str(Path(__file__).parent.parent / "data")
+data_dir_path = "/app/data" if is_docker else str(Path(__file__).parent.parent / "flask_app")
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{data_dir_path}/results.db"
 logger.info(f"Running in {'Docker' if is_docker else 'local'} environment")
 logger.info(f"Using database path: {data_dir_path}/results.db")
