@@ -20,7 +20,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).parent.parent / "data"
-DB_PATH = Path(__file__).parent.parent / "results.db"
+DB_PATH = Path(__file__).parent.parent / "data" / "results.db"
 
 def ensure_data_dir() -> None:
     """Ensure the data directory exists."""
