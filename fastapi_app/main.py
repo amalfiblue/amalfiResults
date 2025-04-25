@@ -1111,9 +1111,9 @@ async def api_candidates_by_electorate(electorate: str, candidate_type: str = "h
         cursor = conn.cursor()
         
         if candidate_type == "senate":
-            cursor.execute("SELECT * FROM candidates WHERE state = ? AND candidate_type = 'senate' ORDER BY surname", (electorate,))
+            cursor.execute("SELECT * FROM candidates WHERE state = ? AND candidate_type = 'senate' ORDER BY candidate_name", (electorate,))
         else:
-            cursor.execute("SELECT * FROM candidates WHERE electorate = ? AND candidate_type = 'house' ORDER BY surname", (electorate,))
+            cursor.execute("SELECT * FROM candidates WHERE electorate = ? AND candidate_type = 'house' ORDER BY candidate_name", (electorate,))
         
         columns = [col[0] for col in cursor.description]
         candidates = [dict(zip(columns, row)) for row in cursor.fetchall()]
