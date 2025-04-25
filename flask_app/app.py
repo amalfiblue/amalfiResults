@@ -774,16 +774,21 @@ def api_dashboard(electorate):
     booth_count = len(booth_results)
     
     tcp_votes_data = []
-    tcp_votes_raw = dashboard_data.get("tcp_votes", {})
-    total_tcp_votes = sum(tcp_votes_raw.values())
+    tcp_votes_raw = dashboard_data.get("tcp_votes", [])
     
-    for candidate, votes in tcp_votes_raw.items():
-        percentage = (votes / total_tcp_votes * 100) if total_tcp_votes > 0 else 0
-        tcp_votes_data.append({
-            "candidate": candidate,
-            "votes": votes,
-            "percentage": percentage
-        })
+    # Check if tcp_votes is already in array format
+    if isinstance(tcp_votes_raw, list):
+        tcp_votes_data = tcp_votes_raw
+    else:
+        total_tcp_votes = sum(tcp_votes_raw.values())
+        
+        for candidate, votes in tcp_votes_raw.items():
+            percentage = (votes / total_tcp_votes * 100) if total_tcp_votes > 0 else 0
+            tcp_votes_data.append({
+                "candidate": candidate,
+                "votes": votes,
+                "percentage": percentage
+            })
     
     primary_votes_data = []
     primary_votes_raw = dashboard_data.get("primary_votes", {})
