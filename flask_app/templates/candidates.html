@@ -169,18 +169,12 @@
     
     // Function to update the candidates table
     function updateCandidatesTable(candidates) {
-        const cardBody = document.querySelector('.card-body');
+        // Target the specific card-body in the right column that contains candidates
+        const cardBody = document.querySelector('.col-md-8 .card .card-body');
         
-        // Remove existing table or alert if present
-        const existingTable = cardBody.querySelector('.table-responsive');
-        if (existingTable) {
-            existingTable.remove();
-        }
+        // Clear the card body content
+        cardBody.innerHTML = '';
         
-        const existingAlert = cardBody.querySelector('.alert-info');
-        if (existingAlert) {
-            existingAlert.remove();
-        }
         
         if (candidates && candidates.length > 0) {
             // Create table structure
