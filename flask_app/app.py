@@ -309,7 +309,7 @@ def get_candidates_page():
         messages.append((category, message))
     
     return render_template(
-        'candidates_new.html', 
+        'candidates.html', 
         candidates=candidates_data, 
         electorates=electorates,
         electorate=electorate,
@@ -355,11 +355,15 @@ def api_candidates():
     
     if electorate:
         fastapi_url = f"{FASTAPI_URL}/candidates/{electorate}"
+        other_params = {k: v for k, v in request.args.items() if k != 'electorate'}
+        if other_params:
+            query_string = '&'.join([f"{k}={v}" for k, v in other_params.items()])
+            fastapi_url += f"?{query_string}"
     else:
         fastapi_url = f"{FASTAPI_URL}/candidates"
         
-    if query_string and not electorate:
-        fastapi_url += f"?{query_string}"
+        if query_string:
+            fastapi_url += f"?{query_string}"
     return redirect(fastapi_url)
 
 @app.route('/api/electorates')
