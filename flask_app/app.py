@@ -626,6 +626,14 @@ def get_dashboard(electorate=None):
                 'votes': data['votes'],
                 'percentage': data['percentage']
             })
+        
+        primary_votes_array = []
+        for candidate, data in primary_votes.items():
+            primary_votes_array.append({
+                'candidate': candidate,
+                'votes': data['votes'],
+                'percentage': data['percentage']
+            })
     
     is_admin = app.config.get('IS_ADMIN', False)
     
@@ -634,7 +642,7 @@ def get_dashboard(electorate=None):
         electorates=electorates,
         selected_electorate=electorate,
         booth_results=booth_results,
-        primary_votes=primary_votes,
+        primary_votes=primary_votes_array,
         tcp_votes=tcp_votes_array,
         booth_counts=booth_counts,
         total_booths=total_booths,
@@ -777,11 +785,23 @@ def api_dashboard(electorate):
             "percentage": percentage
         })
     
+    primary_votes_data = []
+    primary_votes_raw = dashboard_data.get("primary_votes", {})
+    total_primary_votes = sum(item.get("votes", 0) for item in primary_votes_raw.values()) if isinstance(primary_votes_raw, dict) else 0
+    
+    if isinstance(primary_votes_raw, dict):
+        for candidate, data in primary_votes_raw.items():
+            primary_votes_data.append({
+                "candidate": candidate,
+                "votes": data.get("votes", 0),
+                "percentage": data.get("percentage", 0)
+            })
+    
     return jsonify({
         'booth_count': booth_count,
         'total_booths': total_booths,
         'last_updated': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        'primary_votes': dashboard_data.get("primary_votes", []),
+        'primary_votes': primary_votes_data,
         'tcp_votes': tcp_votes_data,
         'booth_results': booth_results
     })

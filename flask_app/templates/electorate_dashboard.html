@@ -141,11 +141,11 @@
                                             </tr>
                                         </thead>
                                         <tbody id="primary-votes-table">
-                                            {% for candidate, votes in primary_votes.items() %}
+                                            {% for item in primary_votes %}
                                             <tr>
-                                                <td>{{ candidate }}</td>
-                                                <td>{{ votes.votes }}</td>
-                                                <td>{{ votes.percentage|round(2) }}%</td>
+                                                <td>{{ item.candidate }}</td>
+                                                <td>{{ item.votes }}</td>
+                                                <td>{{ item.percentage|round(2) }}%</td>
                                             </tr>
                                             {% endfor %}
                                         </tbody>
@@ -254,10 +254,10 @@
     
     // Primary votes chart
     const primaryVotesData = {
-        labels: [{% for candidate in primary_votes %}'{{ candidate }}',{% endfor %}],
+        labels: [{% for item in primary_votes %}'{{ item.candidate }}',{% endfor %}],
         datasets: [{
             label: 'Primary Votes',
-            data: [{% for candidate, votes in primary_votes.items() %}{{ votes.percentage }},{% endfor %}],
+            data: [{% for item in primary_votes %}{{ item.percentage }},{% endfor %}],
             backgroundColor: [
                 'rgba(54, 162, 235, 0.6)',
                 'rgba(255, 99, 132, 0.6)',
