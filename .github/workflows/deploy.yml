@@ -33,7 +33,8 @@ jobs:
       - name: Build and push Flask app
         uses: docker/build-push-action@v4
         with:
-          context: ./flask_app
+          context: .
+          file: ./flask_app/Dockerfile
           push: true
           tags: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_FLASK }}:${{ github.sha }},${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_FLASK }}:latest
           cache-from: type=gha
@@ -42,7 +43,8 @@ jobs:
       - name: Build and push FastAPI app
         uses: docker/build-push-action@v4
         with:
-          context: ./fastapi_app
+          context: .
+          file: ./fastapi_app/Dockerfile
           push: true
           tags: ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_FASTAPI }}:${{ github.sha }},${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_FASTAPI }}:latest
           cache-from: type=gha
