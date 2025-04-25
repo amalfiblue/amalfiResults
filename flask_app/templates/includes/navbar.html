@@ -36,16 +36,9 @@
                     <button class="btn btn-outline-light dropdown-toggle" type="button" id="divisionDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                         {{ selected_electorate }}
                     </button>
-                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="divisionDropdown">
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="divisionDropdown" id="electorate-dropdown">
                         <li><h6 class="dropdown-header">Set Default Division</h6></li>
-                        {% for electorate in electorates %}
-                        <li>
-                            <a class="dropdown-item {% if selected_electorate == electorate %}active{% endif %}" 
-                               href="{{ url_for('set_default_division', division=electorate, next=request.path) }}">
-                                {{ electorate }}
-                            </a>
-                        </li>
-                        {% endfor %}
+                        <!-- Electorates will be loaded via JavaScript -->
                     </ul>
                 </div>
                 {% endif %}
@@ -53,3 +46,60 @@
         </div>
     </div>
 </nav>
+
+<script>
+    // Load electorates from FastAPI when the page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        if (document.getElementById('electorate-dropdown')) {
+            loadElectorates();
+        }
+    });
+    
+    // Function to load electorates from FastAPI
+    function loadElectorates() {
+        fetch('/api/electorates', {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.status === 'success') {
+                updateElectoratesDropdown(data.electorates);
+            } else {
+                console.error('Error loading electorates:', data.message || 'Unknown error');
+            }
+        })
+        .catch(error => {
+            console.error('Error loading electorates:', error);
+        });
+    }
+    
+    // Function to update the electorates dropdown
+    function updateElectoratesDropdown(electorates) {
+        const dropdown = document.getElementById('electorate-dropdown');
+        const currentValue = '{{ selected_electorate }}';
+        
+        // Keep the header
+        const header = dropdown.querySelector('.dropdown-header').parentElement;
+        dropdown.innerHTML = '';
+        dropdown.appendChild(header);
+        
+        // Add electorates from API
+        electorates.forEach(electorate => {
+            const li = document.createElement('li');
+            const a = document.createElement('a');
+            a.className = `dropdown-item ${electorate === currentValue ? 'active' : ''}`;
+            a.href = `/set-default-division?division=${encodeURIComponent(electorate)}&next=${encodeURIComponent(window.location.pathname)}`;
+            a.textContent = electorate;
+            li.appendChild(a);
+            dropdown.appendChild(li);
+        });
+    }
+</script>
