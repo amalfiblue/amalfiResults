@@ -13,8 +13,10 @@ services:
       - FASTAPI_URL=http://results_fastapi_app:8000
     volumes:
       - ./flask_app:/app
+      - ./wait-for-fastapi.sh:/wait-for-fastapi.sh
     depends_on:
       - results_fastapi_app
+    command: ["/wait-for-fastapi.sh", "python", "app.py"]
     networks:
       - amalfi_network
     expose:

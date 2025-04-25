@@ -375,6 +375,11 @@ async def test_endpoint():
     """
     return {"status": "ok", "message": "API is working"}
 
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint for connectivity testing"""
+    return {"status": "ok"}
+
 @app.post("/scan-image")
 async def scan_image(file: UploadFile = File(...)):
     """
