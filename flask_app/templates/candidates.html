@@ -95,9 +95,18 @@
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 <script>
-    // Load electorates from FastAPI when the page loads
+    // Load electorates and candidates from FastAPI when the page loads
     document.addEventListener('DOMContentLoaded', function() {
         loadElectorates();
+        
+        // Load candidates based on URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const electorate = urlParams.get('electorate');
+        const candidateType = urlParams.get('candidate_type');
+        
+        if (electorate || candidateType) {
+            loadCandidates(electorate, candidateType);
+        }
         
         // Set up form submission handler
         const form = document.querySelector('form');
@@ -111,10 +120,128 @@
             if (electorate) params.append('electorate', electorate);
             if (candidateType) params.append('candidate_type', candidateType);
             
-            // Reload page with new parameters
-            window.location.href = `/candidates?${params.toString()}`;
+            // Update URL without reloading the page
+            window.history.pushState({}, '', `/candidates?${params.toString()}`);
+            
+            // Load candidates with the selected filters
+            loadCandidates(electorate, candidateType);
         });
     });
+    
+    // Function to load candidates from FastAPI
+    function loadCandidates(electorate, candidateType) {
+        let apiUrl = '/api/candidates';
+        
+        if (electorate) {
+            apiUrl = `/api/candidates?electorate=${encodeURIComponent(electorate)}`;
+            if (candidateType) {
+                apiUrl += `&candidate_type=${encodeURIComponent(candidateType)}`;
+            }
+        } else if (candidateType) {
+            apiUrl = `/api/candidates?candidate_type=${encodeURIComponent(candidateType)}`;
+        }
+        
+        fetch(apiUrl, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.status === 'success') {
+                updateCandidatesTable(data.candidates);
+            } else {
+                console.error('Error loading candidates:', data.message || 'Unknown error');
+                showNoResultsMessage();
+            }
+        })
+        .catch(error => {
+            console.error('Error loading candidates:', error);
+            showNoResultsMessage();
+        });
+    }
+    
+    // Function to update the candidates table
+    function updateCandidatesTable(candidates) {
+        // Target the specific card-body in the right column that contains candidates
+        const cardBody = document.querySelector('.col-md-8 .card .card-body');
+        
+        // Clear the card body content
+        cardBody.innerHTML = '';
+        
+        
+        if (candidates && candidates.length > 0) {
+            // Create table structure
+            const tableResponsive = document.createElement('div');
+            tableResponsive.className = 'table-responsive';
+            
+            const table = document.createElement('table');
+            table.className = 'table table-striped';
+            
+            const thead = document.createElement('thead');
+            thead.innerHTML = `
+                <tr>
+                    <th>Ballot Position</th>
+                    <th>Candidate Name</th>
+                    <th>Party</th>
+                    <th>Electorate</th>
+                    <th>Type</th>
+                </tr>
+            `;
+            
+            const tbody = document.createElement('tbody');
+            
+            // Add rows
+            candidates.forEach(candidate => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${candidate.ballot_position || ''}</td>
+                    <td>${candidate.candidate_name || ''}</td>
+                    <td>${candidate.party || ''}</td>
+                    <td>${candidate.electorate || ''}</td>
+                    <td>${candidate.candidate_type === 'house' ? 'House of Representatives' : 'Senate'}</td>
+                `;
+                tbody.appendChild(row);
+            });
+            
+            // Assemble table
+            table.appendChild(thead);
+            table.appendChild(tbody);
+            tableResponsive.appendChild(table);
+            
+            // Add to DOM
+            cardBody.appendChild(tableResponsive);
+        } else {
+            // Show no results message
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-info';
+            alertDiv.textContent = 'No candidates found. Please update the AEC data or adjust your filters.';
+            cardBody.appendChild(alertDiv);
+        }
+    }
+    
+    // Function to show no results message
+    function showNoResultsMessage() {
+        const tableResponsive = document.querySelector('.table-responsive');
+        if (tableResponsive) tableResponsive.style.display = 'none';
+        
+        const noResultsDiv = document.querySelector('.alert-info');
+        if (noResultsDiv) {
+            noResultsDiv.style.display = 'block';
+        } else {
+            const cardBody = document.querySelector('.card-body');
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-info';
+            alertDiv.textContent = 'No candidates found. Please update the AEC data or adjust your filters.';
+            cardBody.appendChild(alertDiv);
+        }
+    }
     
     // Function to load electorates from FastAPI
     function loadElectorates() {

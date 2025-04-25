@@ -34,7 +34,7 @@ app.add_middleware(
 )
 
 is_docker = os.path.exists("/.dockerenv") or os.path.isdir("/app/data")
-data_dir_path = "/app/data" if is_docker else str(Path(__file__).parent.parent / "data")
+data_dir_path = "/app/data" if is_docker else str(Path(__file__).parent.parent / "flask_app")
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{data_dir_path}/results.db"
 logger.info(f"Running in {'Docker' if is_docker else 'local'} environment")
 logger.info(f"Using database path: {data_dir_path}/results.db")
@@ -1144,13 +1144,18 @@ async def api_candidates_by_electorate(electorate: str, candidate_type: str = "h
         conn = sqlite3.connect(SQLALCHEMY_DATABASE_URL.replace('sqlite:///', ''))
         cursor = conn.cursor()
         
-        if candidate_type == "senate":
-            cursor.execute("SELECT * FROM candidates WHERE state = ? AND candidate_type = 'senate' ORDER BY candidate_name", (electorate,))
+        logger.info(f"Filtering candidates for electorate: {electorate}, candidate_type: {candidate_type}")
+        
+        # Use electorate column for both senate and house candidates
+        if candidate_type.lower() == "senate":
+            cursor.execute("SELECT * FROM candidates WHERE electorate = ? AND candidate_type = 'senate' ORDER BY candidate_name", (electorate,))
         else:
             cursor.execute("SELECT * FROM candidates WHERE electorate = ? AND candidate_type = 'house' ORDER BY candidate_name", (electorate,))
         
         columns = [col[0] for col in cursor.description]
         candidates = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        
+        logger.info(f"Found {len(candidates)} candidates matching the criteria")
         conn.close()
         
         return {
