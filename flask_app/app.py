@@ -530,7 +530,11 @@ def get_dashboard(electorate=None):
                 result.electorate = electorate
                 result.booth_name = booth_data.get("booth_name")
                 result.image_url = booth_data.get("image_url")
-                result.data = {"primary_votes": booth_data.get("primary_votes", {})}
+                result.data = {
+                    "primary_votes": booth_data.get("primary_votes", {}),
+                    "tcp_votes": booth_data.get("tcp_votes", {}),
+                    "totals": booth_data.get("totals", {"formal": 0, "informal": 0, "total": 0})
+                }
                 results.append(result)
         
         for result in results:
