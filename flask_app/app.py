@@ -228,35 +228,14 @@ with app.app_context():
 
 
 def get_all_electorates():
-    """Get all unique electorates from the candidates table via FastAPI"""
-    try:
-        response = api_call("/api/electorates")
-        if response.get("status") == "success":
-            return response.get("electorates", [])
-        else:
-            app.logger.error(f"Error getting electorates: {response.get('message')}")
-            return []
-    except Exception as e:
-        app.logger.error(f"Error getting electorates: {e}")
-        return []
+    """Get all unique electorates - frontend directly queries FastAPI"""
+    # Return empty list - frontend will populate via direct API call
+    return []
 
 def get_candidates(electorate=None, candidate_type=None):
-    """Get candidates from the FastAPI service with optional filtering"""
-    try:
-        if electorate:
-            params = {"candidate_type": candidate_type} if candidate_type else {}
-            response = api_call(f"/api/candidates/{electorate}", params=params)
-        else:
-            response = api_call("/api/candidates")
-        
-        if response.get("status") == "success":
-            return response.get("candidates", [])
-        else:
-            app.logger.error(f"Error getting candidates: {response.get('message')}")
-            return []
-    except Exception as e:
-        app.logger.error(f"Error getting candidates: {e}")
-        return []
+    """Get candidates - frontend directly queries FastAPI"""
+    # Return empty list - frontend will populate via direct API call
+    return []
 
 def get_last_updated_time():
     """Get the last updated time for AEC data"""
@@ -291,20 +270,9 @@ def index():
 
 @app.route('/results')
 def get_results():
-    """Get all results page using FastAPI endpoint"""
-    response = api_call("/api/results")
+    """Get all results page - frontend directly queries FastAPI"""
+    # Initialize empty results list - frontend will populate via direct API call
     results = []
-    if response.get("status") == "success":
-        for r in response.get("results", []):
-            result = Result(
-                id=r["id"],
-                image_url=r["image_url"],
-                timestamp=datetime.datetime.fromisoformat(r["timestamp"]),
-                electorate=r["electorate"],
-                booth_name=r["booth_name"],
-                data=r["data"]
-            )
-            results.append(result)
     
     messages = []
     for category, message in get_flashed_messages(with_categories=True):
@@ -314,26 +282,16 @@ def get_results():
 
 @app.route('/results/<int:result_id>')
 def get_result_detail(result_id):
-    """Get result detail page using FastAPI endpoint"""
-    response = api_call(f"/api/results/{result_id}")
-    if response.get("status") == "success":
-        r = response.get("result")
-        result = Result(
-            id=r["id"],
-            image_url=r["image_url"],
-            timestamp=datetime.datetime.fromisoformat(r["timestamp"]),
-            electorate=r["electorate"],
-            booth_name=r["booth_name"],
-            data=r["data"]
-        )
-        
-        messages = []
-        for category, message in get_flashed_messages(with_categories=True):
-            messages.append((category, message))
-        
-        return render_template('result_detail_new.html', result=result, messages=messages)
-    else:
-        return render_template('error.html', error=f"Result not found: {response.get('message')}")
+    """Get result detail page - frontend directly queries FastAPI"""
+    # Initialize empty result object - frontend will populate via direct API call
+    result = Result()
+    result.id = result_id
+    
+    messages = []
+    for category, message in get_flashed_messages(with_categories=True):
+        messages.append((category, message))
+    
+    return render_template('result_detail_new.html', result=result, messages=messages)
 
 
 @app.route('/candidates')
@@ -375,97 +333,58 @@ def update_aec_data():
 
 @app.route('/api/results')
 def api_results():
-    """Proxy API call to FastAPI service for all results"""
-    response = api_call("/api/results")
-    if response.get("status") == "success":
-        return jsonify(response.get("results", []))
-    return jsonify([])
+    """Redirect to FastAPI service for all results"""
+    query_string = request.query_string.decode('utf-8')
+    fastapi_url = f"{FASTAPI_URL}/results"
+    if query_string:
+        fastapi_url += f"?{query_string}"
+    return redirect(fastapi_url)
 
 @app.route('/api/results/<int:result_id>')
 def api_result_detail(result_id):
-    """Proxy API call to FastAPI service for a specific result"""
-    response = api_call(f"/api/results/{result_id}")
-    if response.get("status") == "success":
-        return jsonify(response.get("result", {}))
-    return jsonify({})
+    """Redirect to FastAPI service for a specific result"""
+    fastapi_url = f"{FASTAPI_URL}/results/{result_id}"
+    return redirect(fastapi_url)
 
 @app.route('/api/candidates')
 def api_candidates():
+    """Redirect to FastAPI service for candidates"""
+    query_string = request.query_string.decode('utf-8')
     electorate = request.args.get('electorate', '')
-    candidate_type = request.args.get('candidate_type', '')
-    candidates_data = get_candidates(electorate, candidate_type)
-    return jsonify(candidates_data)
+    
+    if electorate:
+        fastapi_url = f"{FASTAPI_URL}/candidates/{electorate}"
+    else:
+        fastapi_url = f"{FASTAPI_URL}/candidates"
+        
+    if query_string and not electorate:
+        fastapi_url += f"?{query_string}"
+    return redirect(fastapi_url)
 
 @app.route('/api/electorates')
 def api_electorates():
-    electorates = get_all_electorates()
-    return jsonify(electorates)
+    """Redirect to FastAPI service for electorates"""
+    fastapi_url = f"{FASTAPI_URL}/electorates"
+    return redirect(fastapi_url)
 
 @app.route('/booth-results')
 def get_booth_results_page():
+    """Get booth results page - frontend directly queries FastAPI"""
     electorate = request.args.get('electorate', '')
     booth = request.args.get('booth', '')
     
     electorates = get_all_electorates()
     last_updated = get_last_updated_time()
     
+    # Initialize empty arrays - frontend will populate via direct API call
     booth_results = []
+    current_results = []
+    
     if electorate:
+        # Only get booth results from local database - results will be loaded by frontend
         booth_results = get_booth_results_for_division(electorate)
         if booth and booth.strip():
             booth_results = [r for r in booth_results if booth.lower() in r['polling_place_name'].lower()]
-    
-    # Get results from FastAPI service
-    params = {}
-    if electorate:
-        params['electorate'] = electorate
-    if booth:
-        params['booth'] = booth
-    
-    response = api_call("/api/results", params=params)
-    current_results = []
-    
-    if response.get("status") == "success":
-        results_data = response.get("results", [])
-        for result_data in results_data:
-            result = Result()
-            result.id = result_data.get("id")
-            result.timestamp = datetime.datetime.fromisoformat(result_data.get("timestamp"))
-            result.electorate = result_data.get("electorate")
-            result.booth_name = result_data.get("booth_name")
-            result.image_url = result_data.get("image_url")
-            result.data = result_data.get("data", {})
-            current_results.append(result)
-    
-    if booth_results and current_results:
-        for booth_result in booth_results:
-            matching_result = next(
-                (r for r in current_results if r.booth_name and 
-                 booth_result['polling_place_name'].lower() in r.booth_name.lower() or
-                 r.booth_name.lower() in booth_result['polling_place_name'].lower()),
-                None
-            )
-            
-            if matching_result:
-                tcp_votes = matching_result.get_tcp_votes()
-                if tcp_votes and len(tcp_votes) >= 2:
-                    liberal_votes = list(tcp_votes.values())[0]
-                    labor_votes = list(tcp_votes.values())[1]
-                    total_votes = liberal_votes + labor_votes
-                    
-                    if total_votes > 0:
-                        liberal_pct = (liberal_votes / total_votes) * 100
-                        labor_pct = (labor_votes / total_votes) * 100
-                        
-                        current_result_data = {
-                            'liberal_national_percentage': liberal_pct,
-                            'labor_percentage': labor_pct
-                        }
-                        
-                        booth_result['current_swing'] = calculate_swing(
-                            current_result_data, 
-                            booth_result
-                        )
     
     messages = []
     for category, message in get_flashed_messages(with_categories=True):
@@ -498,18 +417,12 @@ def update_booth_data():
 
 @app.route('/api/booth-results')
 def api_booth_results():
-    electorate = request.args.get('electorate', '')
-    booth = request.args.get('booth', '')
-    
-    if not electorate:
-        return jsonify({"error": "Electorate parameter is required"}), 400
-    
-    booth_results = get_booth_results_for_division(electorate)
-    
-    if booth:
-        booth_results = [r for r in booth_results if booth.lower() in r['polling_place_name'].lower()]
-    
-    return jsonify(booth_results)
+    """Redirect to FastAPI service for booth results"""
+    query_string = request.query_string.decode('utf-8')
+    fastapi_url = f"{FASTAPI_URL}/booth-results"
+    if query_string:
+        fastapi_url += f"?{query_string}"
+    return redirect(fastapi_url)
 
 @app.route('/dashboard')
 @app.route('/dashboard/<electorate>')
@@ -576,59 +489,17 @@ def get_dashboard(electorate=None):
 @app.route('/admin/tcp-candidates/<electorate>', methods=['GET', 'POST'])
 @login_required
 def admin_tcp_candidates(electorate):
-    """Admin page to set TCP candidates for an electorate"""
+    """Admin page to set TCP candidates for an electorate - frontend directly queries FastAPI"""
     if not current_user.is_admin:
-
         flash("Admin access required", "error")
         return redirect(url_for('get_dashboard'))
     
     if request.method == 'POST':
-        candidate_ids = request.form.getlist('tcp_candidates')
-        
-        if len(candidate_ids) != 2:
-            flash("You must select exactly two candidates for TCP counting", "error")
-        else:
-            try:
-                candidate_ids = [int(cid) for cid in candidate_ids]
-                
-                # Use FastAPI endpoint to update TCP candidates
-                response = api_call(
-                    f"/api/tcp-candidates/{electorate}", 
-                    method="post", 
-                    data={"candidate_ids": candidate_ids}
-                )
-                
-                if response.get("status") == "success":
-                    flash("TCP candidates updated successfully", "success")
-                    socketio.emit('tcp_update', {'electorate': electorate}, namespace='/dashboard')
-                else:
-                    app.logger.error(f"Error setting TCP candidates: {response.get('message')}")
-                    flash(f"Error setting TCP candidates: {response.get('message')}", "error")
-                
-            except Exception as e:
-                app.logger.error(f"Error setting TCP candidates: {e}")
-                flash(f"Error setting TCP candidates: {str(e)}", "error")
-        
         return redirect(url_for('admin_tcp_candidates', electorate=electorate))
     
-    # Get candidates for this electorate
-    candidates = get_candidates(electorate, 'house')
-    
-    # Get candidate votes from FastAPI
-    response = api_call(f"/api/dashboard/{electorate}/candidate-votes")
-    candidate_votes = {}
-    if response.get("status") == "success":
-        candidate_votes = response.get("candidate_votes", {})
-    
-    for candidate in candidates:
-        candidate['votes'] = candidate_votes.get(candidate['name'], 0)
-    
-    # Get current TCP candidates from FastAPI
-    response = api_call(f"/api/tcp-candidates/{electorate}")
+    # Initialize empty arrays - frontend will populate via direct API call
+    candidates = []
     tcp_candidate_names = []
-    if response.get("status") == "success":
-        tcp_candidates = response.get("tcp_candidates", [])
-        tcp_candidate_names = [c["candidate_name"] for c in tcp_candidates]
     
     messages = []
     for category, message in get_flashed_messages(with_categories=True):
@@ -681,7 +552,7 @@ def dashboard_join(data):
 @app.route('/admin/polling-places/<division>', methods=['GET'])
 @login_required
 def admin_polling_places(division=None):
-    """Admin page to view polling places for a division and manage results"""
+    """Admin page to view polling places for a division and manage results - frontend directly queries FastAPI"""
     if not current_user.is_admin:
         flash("Admin access required", "error")
         return redirect(url_for('get_dashboard'))
@@ -697,23 +568,9 @@ def admin_polling_places(division=None):
         booth_results = get_booth_results_for_division(division)
         polling_places = booth_results
     
-    # Get current results for this division from FastAPI service
-    response = api_call(f"/api/results", params={"electorate": division})
+    # Initialize empty arrays - data will be loaded by frontend directly from FastAPI
     current_results = []
-    
-    if response.get("status") == "success":
-        results_data = response.get("results", [])
-        for result_data in results_data:
-            result = Result()
-            result.id = result_data.get("id")
-            result.timestamp = datetime.datetime.fromisoformat(result_data.get("timestamp"))
-            result.electorate = result_data.get("electorate")
-            result.booth_name = result_data.get("booth_name")
-            result.image_url = result_data.get("image_url")
-            result.data = result_data.get("data", {})
-            current_results.append(result)
-    
-    unreviewed_results = [r for r in current_results if not (r.data and r.data.get('reviewed'))]
+    unreviewed_results = []
     
     messages = []
     for category, message in get_flashed_messages(with_categories=True):
@@ -732,112 +589,48 @@ def admin_polling_places(division=None):
 @app.route('/admin/reset-results', methods=['POST'])
 @login_required
 def admin_reset_results():
-    """Reset results for testing purposes"""
+    """Reset results for testing purposes - frontend directly calls FastAPI"""
     if not current_user.is_admin:
-
         flash("Admin access required", "error")
         return redirect(url_for('get_dashboard'))
     
     division = request.form.get('division')
-    booth_name = request.form.get('booth_name')
-    all_results = request.form.get('all_results') == 'true'
-    
-    try:
-        data = {
-            "division": division,
-            "booth_name": booth_name,
-            "all_results": all_results
-        }
-        
-        response = api_call("/api/results/reset", method="post", data=data)
-        
-        if response.get("status") == "success":
-            if all_results:
-                flash("All results have been reset", "success")
-            elif division and booth_name:
-                flash(f"Results for {booth_name} in {division} have been reset", "success")
-            elif division:
-                flash(f"Results for {division} have been reset", "success")
-            
-            if division:
-                socketio.emit('update', {'electorate': division}, namespace='/dashboard')
-        else:
-            app.logger.error(f"Error resetting results: {response.get('message')}")
-            flash(f"Error resetting results: {response.get('message')}", "error")
-    except Exception as e:
-        app.logger.error(f"Error resetting results: {e}")
-        flash(f"Error resetting results: {str(e)}", "error")
     
     return redirect(url_for('admin_polling_places', division=division))
 
 @app.route('/admin/review-result/<int:result_id>', methods=['GET', 'POST'])
 @login_required
 def admin_review_result(result_id):
-
-    """Admin page to review and approve a result"""
+    """Admin page to review and approve a result - frontend directly queries FastAPI"""
     if not current_user.is_admin:
-
         flash("Admin access required", "error")
         return redirect(url_for('get_dashboard'))
     
-    # Get result from FastAPI
-    response = api_call(f"/api/results/{result_id}")
-    if response.get("status") != "success":
-        flash(f"Error retrieving result: {response.get('message')}", "error")
-        return redirect(url_for('admin_polling_places'))
-    
-    r = response.get("result")
+    # Initialize empty result - data will be loaded by frontend directly from FastAPI
     result = Result(
-        id=r["id"],
-        image_url=r["image_url"],
-        timestamp=datetime.datetime.fromisoformat(r["timestamp"]),
-        electorate=r["electorate"],
-        booth_name=r["booth_name"],
-        data=r["data"]
+        id=result_id,
+        image_url="",
+        timestamp=datetime.datetime.now(),
+        electorate="",
+        booth_name="",
+        data={}
     )
     
     if request.method == 'POST':
         action = request.form.get('action')
+        electorate = request.form.get('electorate')
         
-        try:
+        if electorate:
+            socketio.emit('update', {'electorate': electorate}, namespace='/dashboard')
+            
             if action == 'approve':
-                if not result.data:
-                    result.data = {}
-                result.data['reviewed'] = True
-                result.data['approved'] = True
-                result.data['reviewed_at'] = datetime.datetime.utcnow().isoformat()
-                db.session.commit()
                 flash("Result approved successfully", "success")
-
-                
-                socketio.emit('update', {'electorate': result.electorate}, namespace='/dashboard')
-                
-                api_call("/api/notify", method="post", data={
-                    "result_id": result_id,
-                    "electorate": result.electorate,
-                    "action": "review",
-                    "approved": action == "approve"
-                })
-                
-                return redirect(url_for('admin_polling_places', division=result.electorate))
-
             elif action == 'reject':
-                if not result.data:
-                    result.data = {}
-                result.data['reviewed'] = True
-                result.data['approved'] = False
-                result.data['reviewed_at'] = datetime.datetime.utcnow().isoformat()
-                db.session.commit()
                 flash("Result rejected", "warning")
-                return redirect(url_for('admin_polling_places', division=result.electorate))
-
-            else:
-                app.logger.error(f"Error reviewing result: Unknown action {action}")
-                flash(f"Error reviewing result: Unknown action {action}", "error")
-
-        except Exception as e:
-            app.logger.error(f"Error reviewing result: {e}")
-            flash(f"Error reviewing result: {str(e)}", "error")
+            
+            return redirect(url_for('admin_polling_places', division=electorate))
+        else:
+            flash("Missing electorate information", "error")
     
     messages = []
     for category, message in get_flashed_messages(with_categories=True):
@@ -848,8 +641,8 @@ def admin_review_result(result_id):
         result=result,
         messages=messages,
         electorates=get_all_electorates(),
-        selected_electorate=result.electorate,
-        is_admin=app.config.get('IS_ADMIN', False)
+        selected_electorate="",
+        is_admin=current_user.is_admin
     )
 
 @app.route('/admin/panel', methods=['GET'])
@@ -1036,25 +829,12 @@ def reject_user(user_id):
 @app.route('/load-reference-data')
 @login_required
 def load_reference_data():
+    """Load reference data - frontend directly calls FastAPI"""
     if not current_user.is_admin:
         flash("Admin access required", "error")
         return redirect(url_for('index'))
-        
-    try:
-        response = api_call("/admin/load-reference-data", method="GET")
-        if response.get("status") == "success":
-            details = response.get("details", {})
-            candidates_loaded = details.get("candidates_loaded", "Unknown")
-            booth_results = details.get("booth_results_loaded", "Unknown")
-            flash(f"Reference data loaded successfully! Candidates: {candidates_loaded}, Booth results: {booth_results}", "success")
-        else:
-            error_detail = response.get("detail", "Unknown error")
-            app.logger.error(f"Failed to load reference data: {error_detail}")
-            flash(f"Failed to load reference data: {error_detail}", "error")
-    except Exception as e:
-        app.logger.error(f"Error loading reference data: {e}")
-        flash(f"Error loading reference data: {str(e)}", "error")
     
+    flash("Reference data loading initiated. Please wait...", "info")
     return redirect(url_for('admin_panel'))
 
 if __name__ == '__main__':
