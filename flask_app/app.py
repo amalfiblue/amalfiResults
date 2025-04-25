@@ -518,6 +518,9 @@ def get_dashboard(electorate=None):
     primary_votes = {}
     tcp_votes = {}
     
+    primary_votes_array = []
+    tcp_votes_array = []
+    
     if electorate:
         # Get dashboard data for this electorate from FastAPI service
         response = api_call(f"/api/dashboard/{electorate}")
@@ -637,6 +640,8 @@ def get_dashboard(electorate=None):
                 'votes': data['votes'],
                 'percentage': data['percentage']
             })
+        else:
+            app.logger.error(f"Error getting dashboard data: {response.get('message')}")
     
     is_admin = app.config.get('IS_ADMIN', False)
     
