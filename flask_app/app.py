@@ -244,15 +244,23 @@ def get_candidates(electorate=None, candidate_type=None):
         if candidate_type:
             fastapi_url += f"?candidate_type={candidate_type}"
     
-    response = requests.get(fastapi_url)
-    candidates_data = []
-    
-    if response.status_code == 200:
-        data = response.json()
-        if data.get('status') == 'success':
-            candidates_data = data.get('candidates', [])
-    
-    return candidates_data
+    print(f"Fetching candidates from: {fastapi_url}")
+    try:
+        response = requests.get(fastapi_url)
+        print(f"Response status: {response.status_code}")
+        candidates_data = []
+        
+        if response.status_code == 200:
+            data = response.json()
+            print(f"Response data: {data}")
+            if data.get('status') == 'success':
+                candidates_data = data.get('candidates', [])
+                print(f"Found {len(candidates_data)} candidates")
+        
+        return candidates_data
+    except Exception as e:
+        print(f"Error fetching candidates: {e}")
+        return []
 
 def get_last_updated_time():
     """Get the last updated time for AEC data"""
