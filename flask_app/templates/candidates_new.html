@@ -74,7 +74,7 @@
                                     {% for candidate in candidates %}
                                     <tr>
                                         <td>{{ candidate.ballot_position }}</td>
-                                        <td>{{ candidate.name }}</td>
+                                        <td>{{ candidate.candidate_name }}</td>
                                         <td>{{ candidate.party }}</td>
                                         <td>{{ candidate.electorate }}</td>
                                         <td>{{ 'House of Representatives' if candidate.candidate_type == 'house' else 'Senate' }}</td>
