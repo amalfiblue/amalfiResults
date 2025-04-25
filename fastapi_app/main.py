@@ -1258,6 +1258,9 @@ async def api_dashboard(electorate: str):
                         primary_votes[candidate] = {"votes": 0, "percentage": 0}
                     primary_votes[candidate]["votes"] += votes
             
+            if result["data"] and "tcp_votes" in result["data"]:
+                booth_data["tcp_votes"] = result["data"]["tcp_votes"]
+            
             booth_results.append(booth_data)
         
         total_primary_votes = sum(candidate["votes"] for candidate in primary_votes.values())
