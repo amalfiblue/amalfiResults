@@ -757,12 +757,24 @@ def api_dashboard(electorate):
     # Get the actual booth count from the booth_results
     booth_count = len(booth_results)
     
+    tcp_votes_data = []
+    tcp_votes_raw = dashboard_data.get("tcp_votes", {})
+    total_tcp_votes = sum(tcp_votes_raw.values())
+    
+    for candidate, votes in tcp_votes_raw.items():
+        percentage = (votes / total_tcp_votes * 100) if total_tcp_votes > 0 else 0
+        tcp_votes_data.append({
+            "candidate": candidate,
+            "votes": votes,
+            "percentage": percentage
+        })
+    
     return jsonify({
         'booth_count': booth_count,
         'total_booths': total_booths,
         'last_updated': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         'primary_votes': dashboard_data.get("primary_votes", []),
-        'tcp_votes': dashboard_data.get("tcp_votes", []),
+        'tcp_votes': tcp_votes_data,
         'booth_results': booth_results
     })
 
