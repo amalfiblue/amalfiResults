@@ -515,7 +515,7 @@ def api_booth_results():
 @app.route('/dashboard/<electorate>')
 @login_required
 def get_dashboard(electorate=None):
-    """Electorate dashboard showing live results"""
+    """Electorate dashboard showing live results - frontend directly queries FastAPI"""
     electorates = get_all_electorates()
     last_updated = get_last_updated_time()
     
@@ -536,17 +536,18 @@ def get_dashboard(electorate=None):
         flash(f"You don't have access to {electorate}", "error")
         return redirect(url_for('index'))
     
-    # Get booth counts for each electorate
+    # Initialize empty data structures - data will be loaded by frontend directly from FastAPI
     booth_counts = {}
     total_booths = {}
+    booth_results = []
+    primary_votes_array = []
+    tcp_votes_array = []
     
+    # Get historical booth counts for each electorate
     for e in electorates:
-        # Get result count from FastAPI service
-        response = api_call(f"/api/results/count/{e}")
-        booth_counts[e] = response.get("count", 0) if response.get("status") == "success" else 0
-        
         historical_booths = get_booth_results_for_division(e)
         total_booths[e] = len(historical_booths) if historical_booths else 0
+        booth_counts[e] = 0  # Will be populated by frontend
     
     if not electorate:
         electorate = session.get('default_division')
@@ -557,137 +558,7 @@ def get_dashboard(electorate=None):
     if electorate:
         session['last_viewed_division'] = electorate
     
-    # Get booth results for the selected electorate
-    booth_results = []
-    primary_votes = {}
-    tcp_votes = {}
-    
-    primary_votes_array = []
-    tcp_votes_array = []
-    
-    if electorate:
-        # Get dashboard data for this electorate from FastAPI service
-        response = api_call(f"/api/dashboard/{electorate}")
-        results = []
-        
-        if response.get("status") == "success":
-            # Get booth results from the dashboard data
-            booth_results_data = response.get("booth_results", [])
-            for booth_data in booth_results_data:
-                result = Result()
-                result.id = booth_data.get("id")
-                result.timestamp = datetime.datetime.fromisoformat(booth_data.get("timestamp")) if booth_data.get("timestamp") else datetime.datetime.now()
-                result.electorate = electorate
-                result.booth_name = booth_data.get("booth_name")
-                result.image_url = booth_data.get("image_url")
-                result.data = {
-                    "primary_votes": booth_data.get("primary_votes", {}),
-                    "tcp_votes": booth_data.get("tcp_votes", {}),
-                    "totals": booth_data.get("totals", {"formal": 0, "informal": 0, "total": 0})
-                }
-                results.append(result)
-        
-        for result in results:
-            booth_data = result.to_dict()
-            booth_data['totals'] = result.get_totals()
-            
-            historical_booth = get_booth_results_for_polling_place(electorate, result.booth_name)
-            if historical_booth:
-                tcp_data = result.get_tcp_votes()
-                if tcp_data and len(tcp_data) >= 2:
-                    liberal_votes = list(tcp_data.values())[0]
-                    labor_votes = list(tcp_data.values())[1]
-                    total_votes = liberal_votes + labor_votes
-                    
-                    if total_votes > 0:
-                        liberal_pct = (liberal_votes / total_votes) * 100
-                        labor_pct = (labor_votes / total_votes) * 100
-                        
-                        current_result_data = {
-                            'liberal_national_percentage': liberal_pct,
-                            'labor_percentage': labor_pct
-                        }
-                        
-                        booth_data['swing'] = calculate_swing(
-                            current_result_data, 
-                            historical_booth
-                        )
-            
-            booth_results.append(booth_data)
-        
-        for result in results:
-            primary_result = result.get_primary_votes()
-            for candidate, votes in primary_result.items():
-                if candidate in primary_votes:
-                    primary_votes[candidate]['votes'] += votes
-                else:
-                    primary_votes[candidate] = {'votes': votes, 'percentage': 0}
-        
-        total_primary_votes = sum(item['votes'] for item in primary_votes.values())
-        if total_primary_votes > 0:
-            for candidate in primary_votes:
-                primary_votes[candidate]['percentage'] = (primary_votes[candidate]['votes'] / total_primary_votes) * 100
-        
-        # Get TCP candidates from FastAPI service
-        response = api_call(f"/api/tcp-candidates/{electorate}")
-        tcp_candidates = []
-        
-        if response.get("status") == "success":
-            candidates_data = response.get("candidates", [])
-            for candidate_data in candidates_data:
-                candidate = TCPCandidate()
-                candidate.id = candidate_data.get("id")
-                candidate.electorate = candidate_data.get("electorate")
-                candidate.candidate_name = candidate_data.get("candidate_name")
-                candidate.position = candidate_data.get("position")
-                tcp_candidates.append(candidate)
-                
-        tcp_candidate_names = [c.candidate_name for c in tcp_candidates]
-        
-        for result in results:
-            tcp_result = result.get_tcp_votes()
-            
-            if tcp_candidate_names and len(tcp_candidate_names) == 2:
-                for i, candidate in enumerate(tcp_candidate_names):
-                    if i < len(tcp_result):
-                        votes = list(tcp_result.values())[i]
-                        if candidate in tcp_votes:
-                            tcp_votes[candidate]['votes'] += votes
-                        else:
-                            tcp_votes[candidate] = {'votes': votes, 'percentage': 0}
-            else:
-                for i, (candidate, votes) in enumerate(tcp_result.items()):
-                    if i >= 2:  # Only use first two candidates
-                        break
-                    if candidate in tcp_votes:
-                        tcp_votes[candidate]['votes'] += votes
-                    else:
-                        tcp_votes[candidate] = {'votes': votes, 'percentage': 0}
-        
-        total_tcp_votes = sum(item['votes'] for item in tcp_votes.values())
-        if total_tcp_votes > 0:
-            for candidate in tcp_votes:
-                tcp_votes[candidate]['percentage'] = (tcp_votes[candidate]['votes'] / total_tcp_votes) * 100
-    
-        tcp_votes_array = []
-        for candidate, data in tcp_votes.items():
-            tcp_votes_array.append({
-                'candidate': candidate,
-                'votes': data['votes'],
-                'percentage': data['percentage']
-            })
-        
-        primary_votes_array = []
-        for candidate, data in primary_votes.items():
-            primary_votes_array.append({
-                'candidate': candidate,
-                'votes': data['votes'],
-                'percentage': data['percentage']
-            })
-        else:
-            app.logger.error(f"Error getting dashboard data: {response.get('message')}")
-    
-    is_admin = app.config.get('IS_ADMIN', False)
+    is_admin = current_user.is_admin if hasattr(current_user, 'is_admin') else False
     
     return render_template(
         'electorate_dashboard.html',
@@ -776,92 +647,9 @@ def admin_tcp_candidates(electorate):
 
 @app.route('/api/dashboard/<electorate>')
 def api_dashboard(electorate):
-    """API endpoint for dashboard data using FastAPI endpoints"""
-    # Get dashboard data from FastAPI
-    response = api_call(f"/api/dashboard/{electorate}")
-    
-    if response.get("status") != "success":
-        app.logger.error(f"Error getting dashboard data: {response.get('message')}")
-        return jsonify({
-            'booth_count': 0,
-            'total_booths': 0,
-            'last_updated': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'primary_votes': [],
-            'tcp_votes': [],
-            'booth_results': []
-        })
-    
-    dashboard_data = response
-    
-    total_booths = dashboard_data.get("total_booths", 0)
-    
-    booth_results = dashboard_data.get("booth_results", [])
-    for booth_data in booth_results:
-        if booth_data.get("booth_name"):
-            historical_booth = get_booth_results_for_polling_place(electorate, booth_data["booth_name"])
-            if historical_booth and "tcp_votes" in booth_data:
-                tcp_data = booth_data["tcp_votes"]
-                if tcp_data and len(tcp_data) >= 2:
-                    tcp_values = list(tcp_data.values())
-                    if len(tcp_values) >= 2:
-                        liberal_votes = tcp_values[0]
-                        labor_votes = tcp_values[1]
-                        total_votes = liberal_votes + labor_votes
-                        
-                        if total_votes > 0:
-                            liberal_pct = (liberal_votes / total_votes) * 100
-                            labor_pct = (labor_votes / total_votes) * 100
-                            
-                            current_result_data = {
-                                'liberal_national_percentage': liberal_pct,
-                                'labor_percentage': labor_pct
-                            }
-                            
-                            booth_data['swing'] = calculate_swing(
-                                current_result_data, 
-                                historical_booth
-                            )
-    
-    # Get the actual booth count from the booth_results
-    booth_count = len(booth_results)
-    
-    tcp_votes_data = []
-    tcp_votes_raw = dashboard_data.get("tcp_votes", [])
-    
-    # Check if tcp_votes is already in array format
-    if isinstance(tcp_votes_raw, list):
-        tcp_votes_data = tcp_votes_raw
-    else:
-        total_tcp_votes = sum(tcp_votes_raw.values())
-        
-        for candidate, votes in tcp_votes_raw.items():
-            percentage = (votes / total_tcp_votes * 100) if total_tcp_votes > 0 else 0
-            tcp_votes_data.append({
-                "candidate": candidate,
-                "votes": votes,
-                "percentage": percentage
-            })
-    
-    primary_votes_data = []
-    primary_votes_raw = dashboard_data.get("primary_votes", {})
-    total_primary_votes = sum(item.get("votes", 0) for item in primary_votes_raw.values()) if isinstance(primary_votes_raw, dict) else 0
-    
-    if isinstance(primary_votes_raw, dict):
-        for candidate, data in primary_votes_raw.items():
-            primary_votes_data.append({
-                "candidate": candidate,
-                "votes": data.get("votes", 0),
-                "percentage": data.get("percentage", 0)
-            })
-    
-    return jsonify({
-        'booth_count': booth_count,
-        'total_booths': total_booths,
-        'last_updated': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        'primary_votes': primary_votes_data,
-        'tcp_votes': tcp_votes_data,
-        'booth_results': booth_results
-    })
+    """API endpoint for dashboard data - redirects to FastAPI endpoint"""
+    fastapi_url = f"{FASTAPI_URL}/api/dashboard/{electorate}"
+    return redirect(fastapi_url)
 
 @app.route('/api/notify', methods=['POST'])
 def notify():
