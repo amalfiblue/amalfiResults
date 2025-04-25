@@ -43,14 +43,12 @@
                         <h5 class="card-title mb-0">Filter Results</h5>
                     </div>
                     <div class="card-body">
-                        <form method="get" action="/booth-results">
+                        <form id="booth-filter-form">
                             <div class="mb-3">
                                 <label for="electorate" class="form-label">Electorate</label>
                                 <select class="form-select" id="electorate" name="electorate">
                                     <option value="">All Electorates</option>
-                                    {% for e in electorates %}
-                                    <option value="{{ e }}" {% if electorate == e %}selected{% endif %}>{{ e }}</option>
-                                    {% endfor %}
+                                    <!-- Electorates will be loaded via JavaScript -->
                                 </select>
                             </div>
                             <div class="mb-3">
@@ -180,5 +178,75 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        // Load electorates from FastAPI when the page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            loadElectorates();
+            
+            // Set up form submission handler
+            const form = document.getElementById('booth-filter-form');
+            form.addEventListener('submit', function(event) {
+                event.preventDefault();
+                const electorate = document.getElementById('electorate').value;
+                const booth = document.getElementById('booth').value;
+                
+                // Update URL parameters
+                const params = new URLSearchParams();
+                if (electorate) params.append('electorate', electorate);
+                if (booth) params.append('booth', booth);
+                
+                // Reload page with new parameters
+                window.location.href = `/booth-results?${params.toString()}`;
+            });
+        });
+        
+        // Function to load electorates from FastAPI
+        function loadElectorates() {
+            fetch('/api/electorates', {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json',
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.status === 'success') {
+                    updateElectoratesDropdown(data.electorates);
+                } else {
+                    console.error('Error loading electorates:', data.message || 'Unknown error');
+                }
+            })
+            .catch(error => {
+                console.error('Error loading electorates:', error);
+            });
+        }
+        
+        // Function to update the electorates dropdown
+        function updateElectoratesDropdown(electorates) {
+            const dropdown = document.getElementById('electorate');
+            const currentValue = '{{ electorate }}';
+            
+            // Keep the first option (All Electorates)
+            const firstOption = dropdown.options[0];
+            dropdown.innerHTML = '';
+            dropdown.appendChild(firstOption);
+            
+            // Add electorates from API
+            electorates.forEach(electorate => {
+                const option = document.createElement('option');
+                option.value = electorate;
+                option.textContent = electorate;
+                if (electorate === currentValue) {
+                    option.selected = true;
+                }
+                dropdown.appendChild(option);
+            });
+        }
+    </script>
 </body>
 </html>
