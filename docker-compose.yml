@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  flask_app:
+  results_flask_app:
     container_name: results_flask_app
     restart: always
     build:
@@ -14,13 +14,13 @@ services:
     volumes:
       - ./flask_app:/app
     depends_on:
-      - fastapi_app
+      - results_fastapi_app
     networks:
       - amalfi_network
     expose:
       - 5000
 
-  fastapi_app:
+  results_fastapi_app:
     container_name: results_fastapi_app
     restart: always
     build:
