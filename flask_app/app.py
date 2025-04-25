@@ -619,6 +619,14 @@ def get_dashboard(electorate=None):
             for candidate in tcp_votes:
                 tcp_votes[candidate]['percentage'] = (tcp_votes[candidate]['votes'] / total_tcp_votes) * 100
     
+        tcp_votes_array = []
+        for candidate, data in tcp_votes.items():
+            tcp_votes_array.append({
+                'candidate': candidate,
+                'votes': data['votes'],
+                'percentage': data['percentage']
+            })
+    
     is_admin = app.config.get('IS_ADMIN', False)
     
     return render_template(
@@ -627,7 +635,7 @@ def get_dashboard(electorate=None):
         selected_electorate=electorate,
         booth_results=booth_results,
         primary_votes=primary_votes,
-        tcp_votes=tcp_votes,
+        tcp_votes=tcp_votes_array,
         booth_counts=booth_counts,
         total_booths=total_booths,
         last_updated=last_updated,
