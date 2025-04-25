@@ -10,7 +10,7 @@ import pytesseract
 import io
 import json
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, JSON, Float
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, JSON, Float, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
@@ -34,10 +34,12 @@ app.add_middleware(
 )
 
 is_docker = os.path.exists("/.dockerenv") or os.path.isdir("/app/data")
-data_dir_path = "/app/data" if is_docker else "./data"
+data_dir_path = "/app/data" if is_docker else str(Path(__file__).parent.parent / "data")
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{data_dir_path}/results.db"
 logger.info(f"Running in {'Docker' if is_docker else 'local'} environment")
 logger.info(f"Using database path: {data_dir_path}/results.db")
+logger.info(f"Database URL: {SQLALCHEMY_DATABASE_URL}")
+logger.info(f"Database file exists: {os.path.exists(f'{data_dir_path}/results.db')}")
 
 data_dir = Path(data_dir_path)
 data_dir.mkdir(parents=True, exist_ok=True)
@@ -51,11 +53,13 @@ class Result(Base):
     __tablename__ = "results"
 
     id = Column(Integer, primary_key=True, index=True)
-    image_url = Column(String, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
     electorate = Column(String, index=True)
     booth_name = Column(String, index=True)
-    data = Column(JSON)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    image_url = Column(String, index=True)
+    is_reviewed = Column(Integer, default=0)  # SQLite stores BOOLEAN as INTEGER
+    reviewer = Column(String)
+    data = Column(String)  # SQLite stores JSON as TEXT
 
 class TCPCandidate(Base):
     __tablename__ = "tcp_candidates"
@@ -896,26 +900,53 @@ async def api_results_by_electorate(electorate: str):
     Get results for a specific electorate
     """
     try:
-        db = SessionLocal()
-        try:
-            results = db.query(Result).filter_by(electorate=electorate).order_by(Result.timestamp.desc()).all()
-            return {
-                "status": "success",
-                "results": [
-                    {
-                        "id": r.id,
-                        "timestamp": r.timestamp.isoformat(),
-                        "electorate": r.electorate,
-                        "booth_name": r.booth_name,
-                        "image_url": r.image_url,
-                        "data": r.data
-                    } for r in results
-                ]
-            }
-        finally:
-            db.close()
+        db_path = SQLALCHEMY_DATABASE_URL.replace('sqlite:///', '')
+        logger.info(f"Connecting to database at: {db_path}")
+        logger.info(f"Current working directory: {os.getcwd()}")
+        
+        if not os.path.exists(db_path):
+            logger.error(f"Database file does not exist: {db_path}")
+            return {"status": "error", "detail": f"Database file not found: {db_path}"}
+        
+        logger.info(f"Database file exists: {db_path}")
+        logger.info(f"File permissions: {oct(os.stat(db_path).st_mode)}")
+        logger.info(f"File owner: {os.stat(db_path).st_uid}")
+        
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT id, timestamp, electorate, booth_name, image_url, data
+            FROM results 
+            WHERE electorate = ? 
+            ORDER BY timestamp DESC
+        """, (electorate,))
+        
+        columns = ["id", "timestamp", "electorate", "booth_name", "image_url", "data"]
+        results_data = []
+        
+        for row in cursor.fetchall():
+            result = dict(zip(columns, row))
+            if result["data"] and isinstance(result["data"], str):
+                try:
+                    result["data"] = json.loads(result["data"])
+                except json.JSONDecodeError:
+                    logger.warning(f"Failed to parse JSON data for result {result['id']}")
+            
+            results_data.append(result)
+        
+        conn.close()
+        
+        return {
+            "status": "success",
+            "results": results_data
+        }
     except Exception as e:
         logger.error(f"Error getting results for electorate {electorate}: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error details: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/results/count/{electorate}")
@@ -924,15 +955,18 @@ async def api_results_count(electorate: str):
     Count results for a specific electorate
     """
     try:
-        db = SessionLocal()
-        try:
-            count = db.query(Result).filter_by(electorate=electorate).count()
-            return {
-                "status": "success",
-                "count": count
-            }
-        finally:
-            db.close()
+        db_path = SQLALCHEMY_DATABASE_URL.replace('sqlite:///', '')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT COUNT(*) FROM results WHERE electorate = ?", (electorate,))
+        count = cursor.fetchone()[0]
+        conn.close()
+        
+        return {
+            "status": "success",
+            "count": count
+        }
     except Exception as e:
         logger.error(f"Error counting results for electorate {electorate}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1018,7 +1052,7 @@ async def api_electorates():
     Get all unique electorates from the candidates table
     """
     try:
-        db_path = SQLALCHEMY_DATABASE_URL.replace('sqlite://', '')
+        db_path = SQLALCHEMY_DATABASE_URL.replace('sqlite:///', '')
         logger.info(f"Connecting to database at: {db_path}")
         logger.info(f"Current working directory: {os.getcwd()}")
         
@@ -1062,7 +1096,7 @@ async def api_candidates():
     Get all candidates
     """
     try:
-        db_path = SQLALCHEMY_DATABASE_URL.replace('sqlite://', '')
+        db_path = SQLALCHEMY_DATABASE_URL.replace('sqlite:///', '')
         logger.info(f"Connecting to database at: {db_path}")
         logger.info(f"Current working directory: {os.getcwd()}")
         
@@ -1107,13 +1141,13 @@ async def api_candidates_by_electorate(electorate: str, candidate_type: str = "h
     Get candidates for a specific electorate
     """
     try:
-        conn = sqlite3.connect(SQLALCHEMY_DATABASE_URL.replace('sqlite://', ''))
+        conn = sqlite3.connect(SQLALCHEMY_DATABASE_URL.replace('sqlite:///', ''))
         cursor = conn.cursor()
         
         if candidate_type == "senate":
-            cursor.execute("SELECT * FROM candidates WHERE state = ? AND candidate_type = 'senate' ORDER BY surname", (electorate,))
+            cursor.execute("SELECT * FROM candidates WHERE state = ? AND candidate_type = 'senate' ORDER BY candidate_name", (electorate,))
         else:
-            cursor.execute("SELECT * FROM candidates WHERE electorate = ? AND candidate_type = 'house' ORDER BY surname", (electorate,))
+            cursor.execute("SELECT * FROM candidates WHERE electorate = ? AND candidate_type = 'house' ORDER BY candidate_name", (electorate,))
         
         columns = [col[0] for col in cursor.description]
         candidates = [dict(zip(columns, row)) for row in cursor.fetchall()]
@@ -1133,78 +1167,151 @@ async def api_dashboard(electorate: str):
     Get all dashboard data for a specific electorate
     """
     try:
-        db = SessionLocal()
+        import sys
+        import os
+        from pathlib import Path
+        
+        db_path = SQLALCHEMY_DATABASE_URL.replace('sqlite:///', '')
+        logger.info(f"Connecting to database at: {db_path}")
+        logger.info(f"Current working directory: {os.getcwd()}")
+        
+        if not os.path.exists(db_path):
+            logger.error(f"Database file does not exist: {db_path}")
+            return {"status": "error", "detail": f"Database file not found: {db_path}"}
+        
+        logger.info(f"Database file exists: {db_path}")
+        logger.info(f"File permissions: {oct(os.stat(db_path).st_mode)}")
+        logger.info(f"File owner: {os.stat(db_path).st_uid}")
+        
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT COUNT(*) FROM results WHERE electorate = ?", (electorate,))
+        booth_count = cursor.fetchone()[0]
+        logger.info(f"Booth count for {electorate}: {booth_count}")
+        
+        cursor.execute("SELECT id, electorate, booth_name FROM results")
+        all_results = cursor.fetchall()
+        logger.info(f"All results in table: {all_results}")
+        
+        cursor.execute("SELECT COUNT(*) FROM results WHERE LOWER(electorate) = LOWER(?)", (electorate,))
+        case_insensitive_count = cursor.fetchone()[0]
+        logger.info(f"Case-insensitive booth count for {electorate}: {case_insensitive_count}")
+        
+        if case_insensitive_count > 0 and booth_count == 0:
+            booth_count = case_insensitive_count
+            logger.info(f"Using case-insensitive booth count: {booth_count}")
+        
+        # Get the parent directory of the current file's directory
+        parent_dir = str(Path(__file__).parent.parent)
+        if parent_dir not in sys.path:
+            logger.info(f"Adding parent directory to Python path: {parent_dir}")
+            sys.path.append(parent_dir)
+        
         try:
-            booth_count = db.query(Result).filter_by(electorate=electorate).count()
-            
             from utils.booth_results_processor import get_booth_results_for_division
-            historical_booths = get_booth_results_for_division(electorate)
-            total_booths = len(historical_booths) if historical_booths else 0
+        except ImportError:
+            sys.path.insert(0, os.path.join(parent_dir, "utils"))
+            from booth_results_processor import get_booth_results_for_division
             
-            results = db.query(Result).filter_by(electorate=electorate).order_by(Result.timestamp.desc()).all()
+        historical_booths = get_booth_results_for_division(electorate)
+        total_booths = len(historical_booths) if historical_booths else 0
+        logger.info(f"Total historical booths for {electorate}: {total_booths}")
+        
+        # Get results
+        cursor.execute("""
+            SELECT id, timestamp, electorate, booth_name, image_url, data
+            FROM results 
+            WHERE electorate = ? 
+            ORDER BY timestamp DESC
+        """, (electorate,))
+        
+        columns = ["id", "timestamp", "electorate", "booth_name", "image_url", "data"]
+        results = []
+        
+        for row in cursor.fetchall():
+            result = dict(zip(columns, row))
+            if result["data"] and isinstance(result["data"], str):
+                try:
+                    result["data"] = json.loads(result["data"])
+                except json.JSONDecodeError:
+                    logger.warning(f"Failed to parse JSON data for result {result['id']}")
             
-            booth_results = []
-            primary_votes = {}
-            
-            for result in results:
-                booth_data = {
-                    "id": result.id,
-                    "timestamp": result.timestamp.isoformat(),
-                    "booth_name": result.booth_name,
-                    "image_url": result.image_url
-                }
-                
-                if result.data and "primary_votes" in result.data:
-                    booth_data["primary_votes"] = result.data["primary_votes"]
-                    
-                    for candidate, votes in result.data["primary_votes"].items():
-                        if candidate not in primary_votes:
-                            primary_votes[candidate] = {"votes": 0, "percentage": 0}
-                        primary_votes[candidate]["votes"] += votes
-                
-                booth_results.append(booth_data)
-            
-            total_primary_votes = sum(candidate["votes"] for candidate in primary_votes.values())
-            if total_primary_votes > 0:
-                for candidate in primary_votes:
-                    primary_votes[candidate]["percentage"] = (primary_votes[candidate]["votes"] / total_primary_votes) * 100
-            
-            # Get TCP candidates
-            tcp_candidates = db.query(TCPCandidate).filter_by(electorate=electorate).order_by(TCPCandidate.position).all()
-            tcp_candidate_names = [c.candidate_name for c in tcp_candidates]
-            
-            tcp_votes = {}
-            for tcp_candidate in tcp_candidate_names:
-                tcp_votes[tcp_candidate] = 0
-            
-            for result in results:
-                if result.data and "two_candidate_preferred" in result.data:
-                    for tcp_candidate, votes in result.data["two_candidate_preferred"].items():
-                        if tcp_candidate in tcp_votes:
-                            tcp_votes[tcp_candidate] += sum(votes.values())
-            
-            return {
-                "status": "success",
-                "booth_count": booth_count,
-                "total_booths": total_booths,
-                "completion_percentage": (booth_count / total_booths * 100) if total_booths > 0 else 0,
-                "booth_results": booth_results,
-                "primary_votes": primary_votes,
-                "tcp_candidates": [
-                    {
-                        "id": c.id,
-                        "electorate": c.electorate,
-                        "candidate_id": c.candidate_id,
-                        "candidate_name": c.candidate_name,
-                        "position": c.position
-                    } for c in tcp_candidates
-                ],
-                "tcp_votes": tcp_votes
+            results.append(result)
+        
+        booth_results = []
+        primary_votes = {}
+        
+        for result in results:
+            booth_data = {
+                "id": result["id"],
+                "timestamp": result["timestamp"],
+                "booth_name": result["booth_name"],
+                "image_url": result["image_url"]
             }
-        finally:
-            db.close()
+            
+            if result["data"] and "primary_votes" in result["data"]:
+                booth_data["primary_votes"] = result["data"]["primary_votes"]
+                
+                for candidate, votes in result["data"]["primary_votes"].items():
+                    if candidate not in primary_votes:
+                        primary_votes[candidate] = {"votes": 0, "percentage": 0}
+                    primary_votes[candidate]["votes"] += votes
+            
+            booth_results.append(booth_data)
+        
+        total_primary_votes = sum(candidate["votes"] for candidate in primary_votes.values())
+        if total_primary_votes > 0:
+            for candidate in primary_votes:
+                primary_votes[candidate]["percentage"] = (primary_votes[candidate]["votes"] / total_primary_votes) * 100
+        
+        # Get TCP candidates
+        cursor.execute("""
+            SELECT id, electorate, candidate_name
+            FROM tcp_candidates
+            WHERE electorate = ?
+        """, (electorate,))
+        
+        tcp_candidates_data = []
+        tcp_candidate_names = []
+        
+        for row in cursor.fetchall():
+            tcp_candidate = {
+                "id": row[0],
+                "electorate": row[1],
+                "candidate_name": row[2]
+            }
+            tcp_candidates_data.append(tcp_candidate)
+            tcp_candidate_names.append(row[2])  # candidate_name
+        
+        tcp_votes = {}
+        for tcp_candidate in tcp_candidate_names:
+            tcp_votes[tcp_candidate] = 0
+        
+        for result in results:
+            if result["data"] and "tcp_votes" in result["data"]:
+                for tcp_candidate, votes in result["data"]["tcp_votes"].items():
+                    if tcp_candidate in tcp_votes:
+                        tcp_votes[tcp_candidate] += votes
+        
+        conn.close()
+        
+        return {
+            "status": "success",
+            "booth_count": booth_count,
+            "total_booths": total_booths,
+            "completion_percentage": (booth_count / total_booths * 100) if total_booths > 0 else 0,
+            "booth_results": booth_results,
+            "primary_votes": primary_votes,
+            "tcp_candidates": tcp_candidates_data,
+            "tcp_votes": tcp_votes
+        }
     except Exception as e:
         logger.error(f"Error getting dashboard data for electorate {electorate}: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error details: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
