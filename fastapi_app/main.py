@@ -1260,6 +1260,9 @@ async def api_dashboard(electorate: str):
             
             if result["data"] and "tcp_votes" in result["data"]:
                 booth_data["tcp_votes"] = result["data"]["tcp_votes"]
+                
+            if result["data"] and "totals" in result["data"]:
+                booth_data["totals"] = result["data"]["totals"]
             
             booth_results.append(booth_data)
         
