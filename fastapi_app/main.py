@@ -1295,6 +1295,25 @@ async def api_dashboard(electorate: str):
                     if tcp_candidate in tcp_votes:
                         tcp_votes[tcp_candidate] += votes
         
+        tcp_votes_array = []
+        total_tcp_votes = sum(tcp_votes.values())
+        
+        for candidate, votes in tcp_votes.items():
+            percentage = (votes / total_tcp_votes * 100) if total_tcp_votes > 0 else 0
+            tcp_votes_array.append({
+                "candidate": candidate,
+                "votes": votes,
+                "percentage": percentage
+            })
+        
+        primary_votes_array = []
+        for candidate, data in primary_votes.items():
+            primary_votes_array.append({
+                "candidate": candidate,
+                "votes": data["votes"],
+                "percentage": data["percentage"]
+            })
+        
         conn.close()
         
         return {
@@ -1303,9 +1322,9 @@ async def api_dashboard(electorate: str):
             "total_booths": total_booths,
             "completion_percentage": (booth_count / total_booths * 100) if total_booths > 0 else 0,
             "booth_results": booth_results,
-            "primary_votes": primary_votes,
+            "primary_votes": primary_votes_array,
             "tcp_candidates": tcp_candidates_data,
-            "tcp_votes": tcp_votes
+            "tcp_votes": tcp_votes_array
         }
     except Exception as e:
         logger.error(f"Error getting dashboard data for electorate {electorate}: {e}")
