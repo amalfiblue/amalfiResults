@@ -55,13 +55,12 @@
                         
                         <div class="row mb-4">
                             <div class="col-md-6">
-                                <form method="get" action="/admin/polling-places">
+                                <form id="division-form" method="get" action="/admin/polling-places">
                                     <div class="mb-3">
                                         <label for="division" class="form-label">Select Division</label>
                                         <select class="form-select" id="division" name="division" onchange="this.form.submit()">
-                                            {% for electorate in electorates %}
-                                            <option value="{{ electorate }}" {% if division == electorate %}selected{% endif %}>{{ electorate }}</option>
-                                            {% endfor %}
+                                            <option value="">Select Division</option>
+                                            <!-- Electorates will be loaded via JavaScript -->
                                         </select>
                                     </div>
                                 </form>
@@ -279,10 +278,59 @@
             }
         }
 
-        // Load current results data when the page loads
+        // Load electorates and current results data when the page loads
         document.addEventListener('DOMContentLoaded', function() {
+            loadElectorates();
             loadCurrentResults();
         });
+        
+        // Function to load electorates from FastAPI
+        function loadElectorates() {
+            fetch('/api/electorates', {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json',
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.status === 'success') {
+                    updateElectoratesDropdown(data.electorates);
+                } else {
+                    console.error('Error loading electorates:', data.message || 'Unknown error');
+                }
+            })
+            .catch(error => {
+                console.error('Error loading electorates:', error);
+            });
+        }
+        
+        // Function to update the electorates dropdown
+        function updateElectoratesDropdown(electorates) {
+            const dropdown = document.getElementById('division');
+            const currentValue = '{{ division }}';
+            
+            // Keep the first option
+            const firstOption = dropdown.options[0];
+            dropdown.innerHTML = '';
+            dropdown.appendChild(firstOption);
+            
+            // Add electorates from API
+            electorates.forEach(electorate => {
+                const option = document.createElement('option');
+                option.value = electorate;
+                option.textContent = electorate;
+                if (electorate === currentValue) {
+                    option.selected = true;
+                }
+                dropdown.appendChild(option);
+            });
+        }
 
         // Function to load current results from FastAPI
         function loadCurrentResults() {
