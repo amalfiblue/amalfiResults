@@ -89,8 +89,11 @@ class Result:
     
     def get_tcp_votes(self):
         """Get two-candidate preferred votes from data JSON"""
-        if self.data and 'two_candidate_preferred' in self.data:
-            return self.data['two_candidate_preferred']
+        if self.data:
+            if 'tcp_votes' in self.data:
+                return self.data['tcp_votes']
+            elif 'two_candidate_preferred' in self.data:
+                return self.data['two_candidate_preferred']
         return {}
     
     def get_totals(self):
