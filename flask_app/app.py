@@ -23,7 +23,7 @@ from utils.booth_results_processor import process_and_load_booth_results, get_bo
 
 load_dotenv()
 
-FASTAPI_URL = os.environ.get('FASTAPI_URL', 'http://results_fastapi_app:8000')
+FASTAPI_URL = os.environ.get('FASTAPI_URL', 'http://localhost:8000')
 
 def api_call(endpoint, method='get', data=None, params=None):
     """Make an API call to the FastAPI service"""
@@ -89,8 +89,11 @@ class Result:
     
     def get_tcp_votes(self):
         """Get two-candidate preferred votes from data JSON"""
-        if self.data and 'two_candidate_preferred' in self.data:
-            return self.data['two_candidate_preferred']
+        if self.data:
+            if 'tcp_votes' in self.data:
+                return self.data['tcp_votes']
+            elif 'two_candidate_preferred' in self.data:
+                return self.data['two_candidate_preferred']
         return {}
     
     def get_totals(self):
@@ -516,20 +519,25 @@ def get_dashboard(electorate=None):
     tcp_votes = {}
     
     if electorate:
-        # Get current results for this electorate from FastAPI service
-        response = api_call(f"/api/results", params={"electorate": electorate})
+        # Get dashboard data for this electorate from FastAPI service
+        response = api_call(f"/api/dashboard/{electorate}")
         results = []
         
         if response.get("status") == "success":
-            results_data = response.get("results", [])
-            for result_data in results_data:
+            # Get booth results from the dashboard data
+            booth_results_data = response.get("booth_results", [])
+            for booth_data in booth_results_data:
                 result = Result()
-                result.id = result_data.get("id")
-                result.timestamp = datetime.datetime.fromisoformat(result_data.get("timestamp"))
-                result.electorate = result_data.get("electorate")
-                result.booth_name = result_data.get("booth_name")
-                result.image_url = result_data.get("image_url")
-                result.data = result_data.get("data", {})
+                result.id = booth_data.get("id")
+                result.timestamp = datetime.datetime.fromisoformat(booth_data.get("timestamp")) if booth_data.get("timestamp") else datetime.datetime.now()
+                result.electorate = electorate
+                result.booth_name = booth_data.get("booth_name")
+                result.image_url = booth_data.get("image_url")
+                result.data = {
+                    "primary_votes": booth_data.get("primary_votes", {}),
+                    "tcp_votes": booth_data.get("tcp_votes", {}),
+                    "totals": booth_data.get("totals", {"formal": 0, "informal": 0, "total": 0})
+                }
                 results.append(result)
         
         for result in results:
@@ -614,6 +622,22 @@ def get_dashboard(electorate=None):
             for candidate in tcp_votes:
                 tcp_votes[candidate]['percentage'] = (tcp_votes[candidate]['votes'] / total_tcp_votes) * 100
     
+        tcp_votes_array = []
+        for candidate, data in tcp_votes.items():
+            tcp_votes_array.append({
+                'candidate': candidate,
+                'votes': data['votes'],
+                'percentage': data['percentage']
+            })
+        
+        primary_votes_array = []
+        for candidate, data in primary_votes.items():
+            primary_votes_array.append({
+                'candidate': candidate,
+                'votes': data['votes'],
+                'percentage': data['percentage']
+            })
+    
     is_admin = app.config.get('IS_ADMIN', False)
     
     return render_template(
@@ -621,8 +645,8 @@ def get_dashboard(electorate=None):
         electorates=electorates,
         selected_electorate=electorate,
         booth_results=booth_results,
-        primary_votes=primary_votes,
-        tcp_votes=tcp_votes,
+        primary_votes=primary_votes_array,
+        tcp_votes=tcp_votes_array,
         booth_counts=booth_counts,
         total_booths=total_booths,
         last_updated=last_updated,
@@ -718,10 +742,9 @@ def api_dashboard(electorate):
             'booth_results': []
         })
     
-    dashboard_data = response.get("data", {})
+    dashboard_data = response
     
-    historical_booths = get_booth_results_for_division(electorate)
-    total_booths = len(historical_booths) if historical_booths else 0
+    total_booths = dashboard_data.get("total_booths", 0)
     
     booth_results = dashboard_data.get("booth_results", [])
     for booth_data in booth_results:
@@ -750,12 +773,44 @@ def api_dashboard(electorate):
                                 historical_booth
                             )
     
+    # Get the actual booth count from the booth_results
+    booth_count = len(booth_results)
+    
+    tcp_votes_data = []
+    tcp_votes_raw = dashboard_data.get("tcp_votes", [])
+    
+    # Check if tcp_votes is already in array format
+    if isinstance(tcp_votes_raw, list):
+        tcp_votes_data = tcp_votes_raw
+    else:
+        total_tcp_votes = sum(tcp_votes_raw.values())
+        
+        for candidate, votes in tcp_votes_raw.items():
+            percentage = (votes / total_tcp_votes * 100) if total_tcp_votes > 0 else 0
+            tcp_votes_data.append({
+                "candidate": candidate,
+                "votes": votes,
+                "percentage": percentage
+            })
+    
+    primary_votes_data = []
+    primary_votes_raw = dashboard_data.get("primary_votes", {})
+    total_primary_votes = sum(item.get("votes", 0) for item in primary_votes_raw.values()) if isinstance(primary_votes_raw, dict) else 0
+    
+    if isinstance(primary_votes_raw, dict):
+        for candidate, data in primary_votes_raw.items():
+            primary_votes_data.append({
+                "candidate": candidate,
+                "votes": data.get("votes", 0),
+                "percentage": data.get("percentage", 0)
+            })
+    
     return jsonify({
-        'booth_count': dashboard_data.get("booth_count", 0),
+        'booth_count': booth_count,
         'total_booths': total_booths,
         'last_updated': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        'primary_votes': dashboard_data.get("primary_votes", []),
-        'tcp_votes': dashboard_data.get("tcp_votes", []),
+        'primary_votes': primary_votes_data,
+        'tcp_votes': tcp_votes_data,
         'booth_results': booth_results
     })
 
