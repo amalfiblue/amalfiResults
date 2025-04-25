@@ -316,7 +316,8 @@ def insert_current_results():
                         votes[candidate["candidate_name"]] = candidate_votes
                         remaining_votes -= candidate_votes
                 
-                tcp_candidates = random.sample(nirvana_candidates, 2)
+                # Use Mickey Mouse and Donald Duck as TCP candidates
+                tcp_candidates = [nirvana_candidates[0], nirvana_candidates[1]]  # Mickey and Donald
                 tcp_votes = {}
                 tcp_total = total_votes
                 tcp_votes[tcp_candidates[0]["candidate_name"]] = random.randint(int(tcp_total * 0.4), int(tcp_total * 0.6))
@@ -378,7 +379,7 @@ def set_tcp_candidates():
         if count > 0:
             logger.info(f"Nirvana TCP candidates already exist ({count} records). Skipping insertion.")
         else:
-            tcp_candidates = [nirvana_candidates[0], nirvana_candidates[2]]
+            tcp_candidates = [nirvana_candidates[0], nirvana_candidates[1]]  # Mickey Mouse and Donald Duck
             
             for candidate in tcp_candidates:
                 cursor.execute('''
