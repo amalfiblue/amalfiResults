@@ -66,22 +66,19 @@ class TCPCandidate(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     electorate = Column(String, index=True)
-    candidate_id = Column(Integer)
     candidate_name = Column(String)
-    position = Column(Integer)  # 1 or 2 for the two TCP candidates
+    party = Column(String)
 
 class TCPCandidateCreate(BaseModel):
     electorate: str
-    candidate_id: int
     candidate_name: str
-    position: int
+    party: str
 
 class TCPCandidateResponse(BaseModel):
     id: int
     electorate: str
-    candidate_id: int
     candidate_name: str
-    position: int
+    party: str
 
 class ResultResponse(BaseModel):
     id: int
@@ -979,16 +976,15 @@ async def api_tcp_candidates(electorate: str):
     try:
         db = SessionLocal()
         try:
-            candidates = db.query(TCPCandidate).filter_by(electorate=electorate).order_by(TCPCandidate.position).all()
+            candidates = db.query(TCPCandidate).filter_by(electorate=electorate).all()
             return {
                 "status": "success",
                 "candidates": [
                     {
                         "id": c.id,
                         "electorate": c.electorate,
-                        "candidate_id": c.candidate_id,
                         "candidate_name": c.candidate_name,
-                        "position": c.position
+                        "party": c.party
                     } for c in candidates
                 ]
             }
@@ -1015,9 +1011,8 @@ async def api_update_tcp_candidates(electorate: str, request: Request):
             for candidate in candidates_data:
                 tcp_candidate = TCPCandidate(
                     electorate=electorate,
-                    candidate_id=candidate.get("candidate_id"),
                     candidate_name=candidate.get("candidate_name"),
-                    position=candidate.get("position")
+                    party=candidate.get("party")
                 )
                 db.add(tcp_candidate)
             
