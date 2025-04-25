@@ -375,7 +375,7 @@ async def test_endpoint():
     """
     return {"status": "ok", "message": "API is working"}
 
-@app.get("/api/health")
+@app.get("/health")
 async def health_check():
     """Health check endpoint for connectivity testing"""
     return {"status": "ok"}
@@ -837,7 +837,7 @@ async def review_result(result_id: int, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/results")
+@app.get("/results")
 async def api_results():
     """
     Get all results ordered by timestamp descending
@@ -865,7 +865,7 @@ async def api_results():
         logger.error(f"Error getting results: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/results/{result_id}")
+@app.get("/results/{result_id}")
 async def api_result_detail(result_id: int):
     """
     Get a specific result by ID
@@ -896,7 +896,7 @@ async def api_result_detail(result_id: int):
         logger.error(f"Error getting result {result_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/results/electorate/{electorate}")
+@app.get("/results/electorate/{electorate}")
 async def api_results_by_electorate(electorate: str):
     """
     Get results for a specific electorate
@@ -951,7 +951,7 @@ async def api_results_by_electorate(electorate: str):
         logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/results/count/{electorate}")
+@app.get("/results/count/{electorate}")
 async def api_results_count(electorate: str):
     """
     Count results for a specific electorate
@@ -973,7 +973,7 @@ async def api_results_count(electorate: str):
         logger.error(f"Error counting results for electorate {electorate}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/tcp-candidates/{electorate}")
+@app.get("/tcp-candidates/{electorate}")
 async def api_tcp_candidates(electorate: str):
     """
     Get TCP candidates for a specific electorate
@@ -999,7 +999,7 @@ async def api_tcp_candidates(electorate: str):
         logger.error(f"Error getting TCP candidates for electorate {electorate}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/tcp-candidates/{electorate}")
+@app.post("/tcp-candidates/{electorate}")
 async def api_update_tcp_candidates(electorate: str, request: Request):
     """
     Update TCP candidates for a specific electorate
@@ -1046,7 +1046,7 @@ async def api_update_tcp_candidates(electorate: str, request: Request):
         logger.error(f"Error updating TCP candidates: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/electorates")
+@app.get("/electorates")
 async def api_electorates():
     """
     Get all unique electorates from the candidates table
@@ -1090,7 +1090,7 @@ async def api_electorates():
         logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/candidates")
+@app.get("/candidates")
 async def api_candidates():
     """
     Get all candidates
@@ -1135,7 +1135,7 @@ async def api_candidates():
         logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/candidates/{electorate}")
+@app.get("/candidates/{electorate}")
 async def api_candidates_by_electorate(electorate: str, candidate_type: str = "house"):
     """
     Get candidates for a specific electorate
@@ -1161,7 +1161,7 @@ async def api_candidates_by_electorate(electorate: str, candidate_type: str = "h
         logger.error(f"Error getting candidates for electorate {electorate}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/dashboard/{electorate}")
+@app.get("/dashboard/{electorate}")
 async def api_dashboard(electorate: str):
     """
     Get all dashboard data for a specific electorate
