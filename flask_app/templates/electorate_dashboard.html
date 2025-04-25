@@ -81,14 +81,7 @@
                     </div>
                     <div class="card-body">
                         <div class="list-group" id="electorate-list">
-                            {% for electorate in electorates %}
-                            <a href="/dashboard/{{ electorate|urlencode }}" class="list-group-item list-group-item-action {% if selected_electorate == electorate %}active{% endif %}">
-                                {{ electorate }}
-                                <span class="badge bg-primary float-end" id="booth-count-{{ electorate|replace(' ', '-')|lower }}">
-                                    {{ booth_counts.get(electorate, 0) }}
-                                </span>
-                            </a>
-                            {% endfor %}
+                            <!-- Electorates will be loaded via JavaScript -->
                         </div>
                     </div>
                 </div>
@@ -245,6 +238,61 @@
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.6.1/dist/socket.io.min.js"></script>
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+
+<script>
+    // Load electorates from FastAPI when the page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        loadElectorates();
+    });
+    
+    // Function to load electorates from FastAPI
+    function loadElectorates() {
+        fetch('/api/electorates', {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.status === 'success') {
+                updateElectoratesList(data.electorates);
+            } else {
+                console.error('Error loading electorates:', data.message || 'Unknown error');
+            }
+        })
+        .catch(error => {
+            console.error('Error loading electorates:', error);
+        });
+    }
+    
+    // Function to update the electorates list
+    function updateElectoratesList(electorates) {
+        const electorateList = document.getElementById('electorate-list');
+        if (electorateList) {
+            electorateList.innerHTML = '';
+            
+            electorates.forEach(electorate => {
+                const isActive = electorate === '{{ selected_electorate }}';
+                const item = document.createElement('a');
+                item.href = `/dashboard/${encodeURIComponent(electorate)}`;
+                item.className = `list-group-item list-group-item-action ${isActive ? 'active' : ''}`;
+                item.innerHTML = `
+                    ${electorate}
+                    <span class="badge bg-primary float-end" id="booth-count-${electorate.replace(/\s+/g, '-').toLowerCase()}">
+                        ${isActive ? '{{ booth_counts.get(selected_electorate, 0) }}' : '0'}
+                    </span>
+                `;
+                electorateList.appendChild(item);
+            });
+        }
+    }
+</script>
 
 {% if selected_electorate %}
 <script>

@@ -12,22 +12,20 @@
                     <h5 class="card-title mb-0">Filter Candidates</h5>
                 </div>
                 <div class="card-body">
-                    <form method="get" action="/candidates">
+                    <form id="candidates-filter-form">
                         <div class="mb-3">
                             <label for="electorate" class="form-label">Electorate</label>
                             <select class="form-select" id="electorate" name="electorate">
                                 <option value="">All Electorates</option>
-                                {% for e in electorates %}
-                                <option value="{{ e }}" {% if electorate == e %}selected{% endif %}>{{ e }}</option>
-                                {% endfor %}
+                                <!-- Electorates will be loaded via JavaScript -->
                             </select>
                         </div>
                         <div class="mb-3">
                             <label for="candidate_type" class="form-label">Candidate Type</label>
                             <select class="form-select" id="candidate_type" name="candidate_type">
                                 <option value="">All Types</option>
-                                <option value="house" {% if candidate_type == 'house' %}selected{% endif %}>House of Representatives</option>
-                                <option value="senate" {% if candidate_type == 'senate' %}selected{% endif %}>Senate</option>
+                                <option value="house">House of Representatives</option>
+                                <option value="senate">Senate</option>
                             </select>
                         </div>
                         <button type="submit" class="btn btn-primary">Filter</button>
@@ -49,45 +47,12 @@
         <div class="col-md-8">
             <div class="card">
                 <div class="card-header">
-                    <h5 class="card-title mb-0">
-                        {% if electorate %}
-                            Candidates for {{ electorate }}
-                        {% else %}
-                            All Candidates
-                        {% endif %}
-                    </h5>
+                    <h5 id="candidates-title" class="card-title mb-0">All Candidates</h5>
                 </div>
-                <div class="card-body">
-                    {% if candidates %}
-                        <div class="table-responsive">
-                            <table class="table table-striped">
-                                <thead>
-                                    <tr>
-                                        <th>Ballot Position</th>
-                                        <th>Candidate Name</th>
-                                        <th>Party</th>
-                                        <th>Electorate</th>
-                                        <th>Type</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for candidate in candidates %}
-                                    <tr>
-                                        <td>{{ candidate.ballot_position }}</td>
-                                        <td>{{ candidate.candidate_name }}</td>
-                                        <td>{{ candidate.party }}</td>
-                                        <td>{{ candidate.electorate }}</td>
-                                        <td>{{ 'House of Representatives' if candidate.candidate_type == 'house' else 'Senate' }}</td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    {% else %}
-                        <div class="alert alert-info">
-                            No candidates found. Please update the AEC data or adjust your filters.
-                        </div>
-                    {% endif %}
+                <div id="candidates-container" class="card-body">
+                    <div class="alert alert-info">
+                        Loading candidates...
+                    </div>
                 </div>
             </div>
         </div>
@@ -96,4 +61,164 @@
 
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script>
+    // Load electorates and candidates directly from FastAPI when the page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        loadElectorates();
+        loadCandidates();
+        
+        // Set up form submission handler
+        const form = document.getElementById('candidates-filter-form');
+        form.addEventListener('submit', function(event) {
+            event.preventDefault();
+            loadCandidates();
+        });
+    });
+    
+    // Function to load electorates from FastAPI
+    function loadElectorates() {
+        fetch('/api/electorates', {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.status === 'success') {
+                updateElectoratesDropdown(data.electorates);
+            } else {
+                console.error('Error loading electorates:', data.message || 'Unknown error');
+            }
+        })
+        .catch(error => {
+            console.error('Error loading electorates:', error);
+        });
+    }
+    
+    // Function to update the electorates dropdown
+    function updateElectoratesDropdown(electorates) {
+        const dropdown = document.getElementById('electorate');
+        const currentValue = dropdown.value;
+        
+        // Keep the first option (All Electorates)
+        const firstOption = dropdown.options[0];
+        dropdown.innerHTML = '';
+        dropdown.appendChild(firstOption);
+        
+        // Add electorates from API
+        electorates.forEach(electorate => {
+            const option = document.createElement('option');
+            option.value = electorate;
+            option.textContent = electorate;
+            if (electorate === currentValue) {
+                option.selected = true;
+            }
+            dropdown.appendChild(option);
+        });
+    }
+    
+    // Function to load candidates from FastAPI
+    function loadCandidates() {
+        const electorate = document.getElementById('electorate').value;
+        const candidateType = document.getElementById('candidate_type').value;
+        
+        // Update card title
+        const cardTitle = document.getElementById('candidates-title');
+        if (electorate) {
+            cardTitle.textContent = `Candidates for ${electorate}`;
+        } else {
+            cardTitle.textContent = 'All Candidates';
+        }
+        
+        // Build query parameters
+        let url = '/api/candidates';
+        const params = new URLSearchParams();
+        if (electorate) {
+            params.append('electorate', electorate);
+        }
+        if (candidateType) {
+            params.append('candidate_type', candidateType);
+        }
+        if (params.toString()) {
+            url += `?${params.toString()}`;
+        }
+        
+        fetch(url, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.status === 'success') {
+                updateCandidatesTable(data.candidates);
+            } else {
+                console.error('Error loading candidates:', data.message || 'Unknown error');
+                showNoCandidatesMessage();
+            }
+        })
+        .catch(error => {
+            console.error('Error loading candidates:', error);
+            showNoCandidatesMessage();
+        });
+    }
+    
+    // Function to update the candidates table
+    function updateCandidatesTable(candidates) {
+        const tableContainer = document.getElementById('candidates-container');
+        
+        if (candidates && candidates.length > 0) {
+            tableContainer.innerHTML = `
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Ballot Position</th>
+                                <th>Candidate Name</th>
+                                <th>Party</th>
+                                <th>Electorate</th>
+                                <th>Type</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${candidates.map(candidate => `
+                                <tr>
+                                    <td>${candidate.ballot_position || ''}</td>
+                                    <td>${candidate.candidate_name || ''}</td>
+                                    <td>${candidate.party || ''}</td>
+                                    <td>${candidate.electorate || ''}</td>
+                                    <td>${candidate.candidate_type === 'house' ? 'House of Representatives' : 'Senate'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        } else {
+            showNoCandidatesMessage();
+        }
+    }
+    
+    // Function to show "No candidates found" message
+    function showNoCandidatesMessage() {
+        const tableContainer = document.getElementById('candidates-container');
+        tableContainer.innerHTML = `
+            <div class="alert alert-info">
+                No candidates found. Please update the AEC data or adjust your filters.
+            </div>
+        `;
+    }
+</script>
 {% endblock %}
