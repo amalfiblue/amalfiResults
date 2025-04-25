@@ -26,23 +26,67 @@ load_dotenv()
 FASTAPI_URL = os.environ.get('FASTAPI_URL', 'http://localhost:8000')
 
 def api_call(endpoint, method='get', data=None, params=None):
-    """Make an API call to the FastAPI service"""
-    url = f"{FASTAPI_URL}{endpoint}"
+    """Make an API call to the FastAPI service with robust DNS resolution"""
+    # Try multiple methods to resolve the FastAPI service
+    fastapi_urls = []
+    
+    if FASTAPI_URL:
+        fastapi_urls.append(FASTAPI_URL)
+    
     try:
-        if method.lower() == 'get':
-            response = requests.get(url, params=params)
-        elif method.lower() == 'post':
-            response = requests.post(url, json=data)
-        elif method.lower() == 'delete':
-            response = requests.delete(url)
-        else:
-            raise ValueError(f"Unsupported HTTP method: {method}")
-        
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        app.logger.error(f"API call error: {e}")
-        return {"status": "error", "message": str(e)}
+        import socket
+        ip = socket.gethostbyname('results_fastapi_app')
+        fastapi_urls.append(f"http://{ip}:8000")
+    except Exception as e:
+        app.logger.warning(f"Could not resolve results_fastapi_app via gethostbyname: {e}")
+    
+    try:
+        import socket
+        addrinfo = socket.getaddrinfo('results_fastapi_app', 8000, socket.AF_INET, socket.SOCK_STREAM)
+        if addrinfo:
+            ip = addrinfo[0][4][0]
+            fastapi_urls.append(f"http://{ip}:8000")
+    except Exception as e:
+        app.logger.warning(f"Could not resolve results_fastapi_app via getaddrinfo: {e}")
+    
+    try:
+        import subprocess
+        result = subprocess.run(['getent', 'hosts', 'results_fastapi_app'], capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout:
+            ip = result.stdout.split()[0]
+            fastapi_urls.append(f"http://{ip}:8000")
+    except Exception as e:
+        app.logger.warning(f"Could not resolve results_fastapi_app via getent: {e}")
+    
+    fastapi_urls.append("http://localhost:8000")
+    
+    seen = set()
+    fastapi_urls = [x for x in fastapi_urls if not (x in seen or seen.add(x))]
+    
+    last_error = None
+    for base_url in fastapi_urls:
+        url = f"{base_url}{endpoint}"
+        try:
+            app.logger.info(f"Trying FastAPI URL: {url}")
+            if method.lower() == 'get':
+                response = requests.get(url, params=params, timeout=5)
+            elif method.lower() == 'post':
+                response = requests.post(url, json=data, timeout=5)
+            elif method.lower() == 'delete':
+                response = requests.delete(url, timeout=5)
+            else:
+                raise ValueError(f"Unsupported HTTP method: {method}")
+            
+            response.raise_for_status()
+            app.logger.info(f"Successfully connected to FastAPI at {base_url}")
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            last_error = e
+            app.logger.warning(f"Failed to connect to {base_url}: {e}")
+            continue
+    
+    app.logger.error(f"All API connection attempts failed. Last error: {last_error}")
+    return {"status": "error", "message": str(last_error)}
 
 
 app = Flask(__name__)
