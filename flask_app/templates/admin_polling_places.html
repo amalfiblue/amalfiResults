@@ -165,7 +165,7 @@
         function resetBoothResults(division, boothName) {
             if (confirm(`Are you sure you want to reset results for ${boothName}?`)) {
                 // Direct API call to FastAPI
-                fetch('/api/results/reset', {
+                fetch('http://localhost:8000/admin/reset-results', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -206,7 +206,7 @@
                 const allResults = resetOption === 'all';
                 
                 // Direct API call to FastAPI
-                fetch('/api/results/reset', {
+                fetch('http://localhost:8000/admin/reset-results', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -264,14 +264,14 @@
             }
         });
         
-        // Function to load polling places directly from the API
+        // Function to load polling places directly from the FastAPI
         function loadPollingPlaces() {
             const division = document.querySelector('#division').value;
             if (!division) return;
             
             console.log("Loading polling places for division:", division);
             
-            fetch(`/api/booth-results?electorate=${encodeURIComponent(division)}`, {
+            fetch(`http://localhost:8000/booth-results?electorate=${encodeURIComponent(division)}`, {
                 method: 'GET',
                 headers: {
                     'Accept': 'application/json',
@@ -362,9 +362,9 @@
             });
         }
         
-        // Function to load electorates from FastAPI
+        // Function to load electorates directly from FastAPI
         function loadElectorates() {
-            fetch('/api/electorates', {
+            fetch('http://localhost:8000/electorates', {
                 method: 'GET',
                 headers: {
                     'Accept': 'application/json',
@@ -415,7 +415,7 @@
             const division = document.querySelector('#division').value;
             
             // Direct API call to FastAPI to get results
-            fetch(`/api/results?electorate=${encodeURIComponent(division)}`, {
+            fetch(`http://localhost:8000/results?electorate=${encodeURIComponent(division)}`, {
                 method: 'GET',
                 headers: {
                     'Accept': 'application/json',
@@ -445,8 +445,8 @@
             
             // Clear existing rows if no polling places are displayed
             if (tableBody.children.length === 0) {
-                // Fetch polling places data from the server
-                fetch(`/api/booth-results?electorate=${encodeURIComponent(division)}`, {
+                // Fetch polling places data directly from FastAPI
+                fetch(`http://localhost:8000/booth-results?electorate=${encodeURIComponent(division)}`, {
                     method: 'GET',
                     headers: {
                         'Accept': 'application/json',
