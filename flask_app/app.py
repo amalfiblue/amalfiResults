@@ -208,7 +208,7 @@ def load_user(user_id):
 def create_root_user():
     """Create the root user if it doesn't exist"""
     root_email = "andrew.waites@amalfination.com"
-    root_password = "dragonSneezer"
+    root_password = os.environ.get('ROOT_PWD', 'development_password')
     
     root_user = User.query.filter_by(email=root_email).first()
     if not root_user:
@@ -279,7 +279,8 @@ def get_results():
     for category, message in get_flashed_messages(with_categories=True):
         messages.append((category, message))
     
-    return render_template('results_new.html', results=results, messages=messages)
+    return render_template('results_new.html', results=results, messages=messages, 
+                          is_admin=current_user.is_admin if hasattr(current_user, 'is_admin') else False)
 
 @app.route('/results/<int:result_id>')
 def get_result_detail(result_id):
@@ -292,7 +293,8 @@ def get_result_detail(result_id):
     for category, message in get_flashed_messages(with_categories=True):
         messages.append((category, message))
     
-    return render_template('result_detail_new.html', result=result, messages=messages)
+    return render_template('result_detail_new.html', result=result, messages=messages,
+                          is_admin=current_user.is_admin if hasattr(current_user, 'is_admin') else False)
 
 
 @app.route('/candidates')
@@ -315,7 +317,8 @@ def get_candidates_page():
         electorate=electorate,
         candidate_type=candidate_type,
         last_updated=last_updated,
-        messages=messages
+        messages=messages,
+        is_admin=current_user.is_admin if hasattr(current_user, 'is_admin') else False
     )
 
 @app.route('/update-aec-data')
@@ -381,6 +384,12 @@ def get_booth_results_page():
     electorates = get_all_electorates()
     last_updated = get_last_updated_time()
     
+    # Check if user has access to the specified electorate
+    if electorate and hasattr(current_user, 'is_authenticated') and current_user.is_authenticated:
+        if not current_user.has_access_to_division(electorate):
+            flash(f"You don't have access to {electorate}", "error")
+            return redirect(url_for('index'))
+    
     # Initialize empty arrays - frontend will populate via direct API call
     booth_results = []
     current_results = []
@@ -403,7 +412,8 @@ def get_booth_results_page():
         electorate=electorate,
         booth=booth,
         last_updated=last_updated,
-        messages=messages
+        messages=messages,
+        is_admin=current_user.is_admin if hasattr(current_user, 'is_admin') else False
     )
 
 @app.route('/update-booth-data')
@@ -567,6 +577,11 @@ def admin_polling_places(division=None):
     if not division and electorates:
         division = electorates[0]
     
+    # Check if user has access to the specified division
+    if division and not current_user.has_access_to_division(division):
+        flash(f"You don't have access to {division}", "error")
+        return redirect(url_for('index'))
+    
     polling_places = []
     if division:
         from utils.booth_results_processor import get_booth_results_for_division
@@ -588,7 +603,8 @@ def admin_polling_places(division=None):
         polling_places=polling_places,
         current_results=current_results,
         unreviewed_results=unreviewed_results,
-        messages=messages
+        messages=messages,
+        is_admin=current_user.is_admin
     )
 
 @app.route('/admin/reset-results', methods=['POST'])
@@ -798,7 +814,8 @@ def admin_users():
     return render_template(
         'admin_users.html',
         pending_users=pending_users,
-        approved_users=approved_users
+        approved_users=approved_users,
+        is_admin=current_user.is_admin
     )
 
 @app.route('/admin/users/<int:user_id>/approve', methods=['POST'])
