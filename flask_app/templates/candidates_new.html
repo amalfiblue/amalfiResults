@@ -140,7 +140,7 @@
         let url = '/api/candidates';
         const params = new URLSearchParams();
         if (electorate) {
-            params.append('electorate', electorate);
+            url = f`/api/candidates/${electorate}`;
         }
         if (candidateType) {
             params.append('candidate_type', candidateType);
