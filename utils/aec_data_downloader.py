@@ -25,7 +25,7 @@ AEC_HOUSE_CANDIDATES_URL = "https://aec.gov.au/election/files/data/house-candida
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 is_docker = os.path.exists("/.dockerenv") or os.path.isdir("/app/data")
-data_dir_path = "/app/data" if is_docker else "./data"
+data_dir_path = "/app/data" if is_docker else str(Path(__file__).parent.parent / "flask_app")
 DB_PATH = Path(f"{data_dir_path}/results.db")
 logger.info(f"Using database path: {DB_PATH}")
 

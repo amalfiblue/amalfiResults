@@ -24,7 +24,7 @@ AEC_BOOTH_RESULTS_URL = "https://results.aec.gov.au/27966/Website/Downloads/Hous
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 is_docker = os.path.exists("/.dockerenv") or os.path.isdir("/app/data")
-data_dir_path = "/app/data" if is_docker else str(Path(__file__).parent.parent / "data")
+data_dir_path = "/app/data" if is_docker else str(Path(__file__).parent.parent / "flask_app")
 DB_PATH = Path(f"{data_dir_path}/results.db")
 logger.info(f"Using database path: {DB_PATH}, exists: {DB_PATH.exists()}")
 logger.info(f"Current working directory: {os.getcwd()}")

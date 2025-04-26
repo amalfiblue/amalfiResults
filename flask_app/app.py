@@ -335,45 +335,6 @@ def update_aec_data():
     
     return redirect(url_for('get_candidates_page'))
 
-@app.route('/api/results')
-def api_results():
-    """Redirect to FastAPI service for all results"""
-    query_string = request.query_string.decode('utf-8')
-    fastapi_url = f"{FASTAPI_URL}/results"
-    if query_string:
-        fastapi_url += f"?{query_string}"
-    return redirect(fastapi_url)
-
-@app.route('/api/results/<int:result_id>')
-def api_result_detail(result_id):
-    """Redirect to FastAPI service for a specific result"""
-    fastapi_url = f"{FASTAPI_URL}/results/{result_id}"
-    return redirect(fastapi_url)
-
-@app.route('/api/candidates')
-def api_candidates():
-    """Redirect to FastAPI service for candidates"""
-    query_string = request.query_string.decode('utf-8')
-    electorate = request.args.get('electorate', '')
-    
-    if electorate:
-        fastapi_url = f"{FASTAPI_URL}/candidates/{electorate}"
-        other_params = {k: v for k, v in request.args.items() if k != 'electorate'}
-        if other_params:
-            query_string = '&'.join([f"{k}={v}" for k, v in other_params.items()])
-            fastapi_url += f"?{query_string}"
-    else:
-        fastapi_url = f"{FASTAPI_URL}/candidates"
-        
-        if query_string:
-            fastapi_url += f"?{query_string}"
-    return redirect(fastapi_url)
-
-@app.route('/api/electorates')
-def api_electorates():
-    """Redirect to FastAPI service for electorates"""
-    fastapi_url = f"{FASTAPI_URL}/electorates"
-    return redirect(fastapi_url)
 
 @app.route('/booth-results')
 def get_booth_results_page():
@@ -430,14 +391,6 @@ def update_booth_data():
     
     return redirect(url_for('get_booth_results_page'))
 
-@app.route('/api/booth-results')
-def api_booth_results():
-    """Redirect to FastAPI service for booth results"""
-    query_string = request.query_string.decode('utf-8')
-    fastapi_url = f"{FASTAPI_URL}/booth-results"
-    if query_string:
-        fastapi_url += f"?{query_string}"
-    return redirect(fastapi_url)
 
 @app.route('/dashboard')
 @app.route('/dashboard/<electorate>')
@@ -541,11 +494,6 @@ def admin_tcp_candidates(electorate=None):
         is_admin=app.config.get('IS_ADMIN', False)
     )
 
-@app.route('/api/dashboard/<electorate>')
-def api_dashboard(electorate):
-    """API endpoint for dashboard data - redirects to FastAPI endpoint"""
-    fastapi_url = f"{FASTAPI_URL}/api/dashboard/{electorate}"
-    return redirect(fastapi_url)
 
 @app.route('/api/notify', methods=['POST'])
 def notify():
@@ -582,6 +530,9 @@ def admin_polling_places(division=None):
         flash("Admin access required", "error")
         return redirect(url_for('get_dashboard'))
     
+    if not division and request.args.get('division'):
+        division = request.args.get('division')
+    
     electorates = get_all_electorates()
     
     if not division and electorates:
@@ -597,6 +548,9 @@ def admin_polling_places(division=None):
         from utils.booth_results_processor import get_booth_results_for_division
         booth_results = get_booth_results_for_division(division)
         polling_places = booth_results
+        app.logger.info(f"Retrieved {len(polling_places)} polling places for division {division}")
+        if polling_places:
+            app.logger.info(f"First polling place: {polling_places[0]}")
     
     # Initialize empty arrays - data will be loaded by frontend directly from FastAPI
     current_results = []
@@ -868,6 +822,33 @@ def load_reference_data():
     
     flash("Reference data loading initiated. Please wait...", "info")
     return redirect(url_for('admin_panel'))
+
+@app.route('/api/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE'])
+def api_proxy(path):
+    """Proxy all /api/* requests to the FastAPI server"""
+    method = request.method
+    app.logger.info(f"Proxying {method} request to /{path}")
+    
+    try:
+        if method.lower() == 'get':
+            response = api_call(f"/{path}", method='get', params=request.args)
+            return jsonify(response)
+        elif method.lower() == 'post':
+            data = request.get_json(silent=True)
+            response = api_call(f"/{path}", method='post', data=data)
+            return jsonify(response)
+        elif method.lower() == 'put':
+            data = request.get_json(silent=True)
+            response = api_call(f"/{path}", method='put', data=data)
+            return jsonify(response)
+        elif method.lower() == 'delete':
+            response = api_call(f"/{path}", method='delete')
+            return jsonify(response)
+        else:
+            return jsonify({"status": "error", "message": f"Unsupported method: {method}"}), 405
+    except Exception as e:
+        app.logger.error(f"Error proxying {method} request to /{path}: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == '__main__':
     socketio.run(app, debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), 

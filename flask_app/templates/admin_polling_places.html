@@ -165,7 +165,7 @@
         function resetBoothResults(division, boothName) {
             if (confirm(`Are you sure you want to reset results for ${boothName}?`)) {
                 // Direct API call to FastAPI
-                fetch('/api/results/reset', {
+                fetch('/api/admin/reset-results', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -206,7 +206,7 @@
                 const allResults = resetOption === 'all';
                 
                 // Direct API call to FastAPI
-                fetch('/api/results/reset', {
+                fetch('/api/admin/reset-results', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -247,11 +247,122 @@
 
         // Load electorates and current results data when the page loads
         document.addEventListener('DOMContentLoaded', function() {
+            console.log("DOMContentLoaded event fired");
             loadElectorates();
             loadCurrentResults();
+            
+            // Check if the table is empty and load polling places directly
+            const tableBody = document.querySelector('tbody');
+            console.log("Table body found:", tableBody);
+            console.log("Table body children length:", tableBody ? tableBody.children.length : "N/A");
+            
+            if (tableBody && tableBody.children.length === 0) {
+                console.log("Table is empty, loading polling places directly");
+                loadPollingPlaces();
+            } else {
+                console.log("Table is not empty, skipping direct polling places load");
+            }
         });
         
-        // Function to load electorates from FastAPI
+        // Function to load polling places directly from the FastAPI
+        function loadPollingPlaces() {
+            const division = document.querySelector('#division').value;
+            if (!division) return;
+            
+            console.log("Loading polling places for division:", division);
+            
+            fetch(`/api/booth-results?electorate=${encodeURIComponent(division)}`, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json',
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log("Received booth results:", data);
+                if (data.status === 'success' && data.booth_results) {
+                    const tableBody = document.querySelector('tbody');
+                    tableBody.innerHTML = ''; // Clear any existing rows
+                    
+                    // Create rows for each polling place
+                    data.booth_results.forEach(place => {
+                        const row = document.createElement('tr');
+                        
+                        // Polling Place Name
+                        const nameCell = document.createElement('td');
+                        nameCell.textContent = place.polling_place_name;
+                        row.appendChild(nameCell);
+                        
+                        // State
+                        const stateCell = document.createElement('td');
+                        stateCell.textContent = place.state;
+                        row.appendChild(stateCell);
+                        
+                        // Liberal/National %
+                        const liberalCell = document.createElement('td');
+                        liberalCell.textContent = `${place.liberal_national_percentage.toFixed(2)}%`;
+                        row.appendChild(liberalCell);
+                        
+                        // Labor %
+                        const laborCell = document.createElement('td');
+                        laborCell.textContent = `${place.labor_percentage.toFixed(2)}%`;
+                        row.appendChild(laborCell);
+                        
+                        // Swing
+                        const swingCell = document.createElement('td');
+                        if (place.swing > 0) {
+                            const span = document.createElement('span');
+                            span.className = 'text-danger';
+                            span.textContent = `+${place.swing.toFixed(2)}% to ALP`;
+                            swingCell.appendChild(span);
+                        } else if (place.swing < 0) {
+                            const span = document.createElement('span');
+                            span.className = 'text-primary';
+                            span.textContent = `${place.swing.toFixed(2)}% to LNP`;
+                            swingCell.appendChild(span);
+                        } else {
+                            swingCell.textContent = 'No swing';
+                        }
+                        row.appendChild(swingCell);
+                        
+                        // Current Results (empty for now, will be updated by loadCurrentResults)
+                        const resultCell = document.createElement('td');
+                        const badge = document.createElement('span');
+                        badge.className = 'badge bg-secondary';
+                        badge.textContent = 'No results';
+                        resultCell.appendChild(badge);
+                        row.appendChild(resultCell);
+                        
+                        // Actions
+                        const actionsCell = document.createElement('td');
+                        const resetButton = document.createElement('button');
+                        resetButton.type = 'button';
+                        resetButton.className = 'btn btn-sm btn-outline-danger';
+                        resetButton.textContent = 'Reset';
+                        resetButton.onclick = function() {
+                            resetBoothResults(division, place.polling_place_name);
+                        };
+                        actionsCell.appendChild(resetButton);
+                        row.appendChild(actionsCell);
+                        
+                        tableBody.appendChild(row);
+                    });
+                    
+                    // Now load current results to update the "Current Results" column
+                    loadCurrentResults();
+                }
+            })
+            .catch(error => {
+                console.error('Error loading booth results:', error);
+            });
+        }
+        
+        // Function to load electorates directly from FastAPI
         function loadElectorates() {
             fetch('/api/electorates', {
                 method: 'GET',
@@ -328,35 +439,141 @@
 
         // Function to update the results table with data from FastAPI
         function updateResultsTable(results) {
-            // Find all polling place rows
-            const rows = document.querySelectorAll('tbody tr');
+            // Get the table body
+            const tableBody = document.querySelector('tbody');
+            const division = document.querySelector('#division').value;
             
-            rows.forEach(row => {
-                const placeName = row.querySelector('td:first-child').textContent;
-                const resultCell = row.querySelector('td:nth-child(6)');
+            // Clear existing rows if no polling places are displayed
+            if (tableBody.children.length === 0) {
+                // Fetch polling places data directly from FastAPI
+                fetch(`/api/booth-results?electorate=${encodeURIComponent(division)}`, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                    }
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.status === 'success' && data.booth_results) {
+                        // Create rows for each polling place
+                        data.booth_results.forEach(place => {
+                            const row = document.createElement('tr');
+                            
+                            // Polling Place Name
+                            const nameCell = document.createElement('td');
+                            nameCell.textContent = place.polling_place_name;
+                            row.appendChild(nameCell);
+                            
+                            // State
+                            const stateCell = document.createElement('td');
+                            stateCell.textContent = place.state;
+                            row.appendChild(stateCell);
+                            
+                            // Liberal/National %
+                            const liberalCell = document.createElement('td');
+                            liberalCell.textContent = `${place.liberal_national_percentage.toFixed(2)}%`;
+                            row.appendChild(liberalCell);
+                            
+                            // Labor %
+                            const laborCell = document.createElement('td');
+                            laborCell.textContent = `${place.labor_percentage.toFixed(2)}%`;
+                            row.appendChild(laborCell);
+                            
+                            // Swing
+                            const swingCell = document.createElement('td');
+                            if (place.swing > 0) {
+                                const span = document.createElement('span');
+                                span.className = 'text-danger';
+                                span.textContent = `+${place.swing.toFixed(2)}% to ALP`;
+                                swingCell.appendChild(span);
+                            } else if (place.swing < 0) {
+                                const span = document.createElement('span');
+                                span.className = 'text-primary';
+                                span.textContent = `${place.swing.toFixed(2)}% to LNP`;
+                                swingCell.appendChild(span);
+                            } else {
+                                swingCell.textContent = 'No swing';
+                            }
+                            row.appendChild(swingCell);
+                            
+                            // Current Results
+                            const resultCell = document.createElement('td');
+                            
+                            // Find matching result
+                            const matchingResult = results.find(r => 
+                                r.booth_name && (place.polling_place_name.toLowerCase().includes(r.booth_name.toLowerCase()) || 
+                                r.booth_name.toLowerCase().includes(place.polling_place_name.toLowerCase()))
+                            );
+                            
+                            if (matchingResult) {
+                                const viewLink = document.createElement('a');
+                                viewLink.href = `/results/${matchingResult.id}`;
+                                viewLink.className = 'btn btn-sm btn-primary';
+                                viewLink.textContent = 'View';
+                                resultCell.appendChild(viewLink);
+                            } else {
+                                const badge = document.createElement('span');
+                                badge.className = 'badge bg-secondary';
+                                badge.textContent = 'No results';
+                                resultCell.appendChild(badge);
+                            }
+                            row.appendChild(resultCell);
+                            
+                            // Actions
+                            const actionsCell = document.createElement('td');
+                            const resetButton = document.createElement('button');
+                            resetButton.type = 'button';
+                            resetButton.className = 'btn btn-sm btn-outline-danger';
+                            resetButton.textContent = 'Reset';
+                            resetButton.onclick = function() {
+                                resetBoothResults(division, place.polling_place_name);
+                            };
+                            actionsCell.appendChild(resetButton);
+                            row.appendChild(actionsCell);
+                            
+                            tableBody.appendChild(row);
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading booth results:', error);
+                });
+            } else {
+                // Update existing rows
+                const rows = tableBody.querySelectorAll('tr');
                 
-                // Clear existing content
-                resultCell.innerHTML = '';
-                
-                // Find matching result
-                const matchingResult = results.find(r => 
-                    r.booth_name && (placeName.toLowerCase().includes(r.booth_name.toLowerCase()) || 
-                    r.booth_name.toLowerCase().includes(placeName.toLowerCase()))
-                );
-                
-                if (matchingResult) {
-                    const viewLink = document.createElement('a');
-                    viewLink.href = `/results/${matchingResult.id}`;
-                    viewLink.className = 'btn btn-sm btn-primary';
-                    viewLink.textContent = 'View';
-                    resultCell.appendChild(viewLink);
-                } else {
-                    const badge = document.createElement('span');
-                    badge.className = 'badge bg-secondary';
-                    badge.textContent = 'No results';
-                    resultCell.appendChild(badge);
-                }
-            });
+                rows.forEach(row => {
+                    const placeName = row.querySelector('td:first-child').textContent;
+                    const resultCell = row.querySelector('td:nth-child(6)');
+                    
+                    // Clear existing content
+                    resultCell.innerHTML = '';
+                    
+                    // Find matching result
+                    const matchingResult = results.find(r => 
+                        r.booth_name && (placeName.toLowerCase().includes(r.booth_name.toLowerCase()) || 
+                        r.booth_name.toLowerCase().includes(placeName.toLowerCase()))
+                    );
+                    
+                    if (matchingResult) {
+                        const viewLink = document.createElement('a');
+                        viewLink.href = `/results/${matchingResult.id}`;
+                        viewLink.className = 'btn btn-sm btn-primary';
+                        viewLink.textContent = 'View';
+                        resultCell.appendChild(viewLink);
+                    } else {
+                        const badge = document.createElement('span');
+                        badge.className = 'badge bg-secondary';
+                        badge.textContent = 'No results';
+                        resultCell.appendChild(badge);
+                    }
+                });
+            }
         }
     </script>
 {% endblock %}
