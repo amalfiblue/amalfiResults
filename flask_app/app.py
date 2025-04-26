@@ -823,6 +823,31 @@ def load_reference_data():
     flash("Reference data loading initiated. Please wait...", "info")
     return redirect(url_for('admin_panel'))
 
+@app.route('/api/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE'])
+def api_proxy(path):
+    """Proxy all /api/* requests to the FastAPI server"""
+    method = request.method
+    query_string = request.query_string.decode('utf-8')
+    fastapi_url = f"{FASTAPI_URL}/{path}"
+    
+    if query_string:
+        fastapi_url += f"?{query_string}"
+    
+    app.logger.info(f"Proxying {method} request to {fastapi_url}")
+    
+    if method == 'GET':
+        resp = requests.get(fastapi_url, headers=dict(request.headers))
+    elif method == 'POST':
+        resp = requests.post(fastapi_url, json=request.get_json(), headers=dict(request.headers))
+    elif method == 'PUT':
+        resp = requests.put(fastapi_url, json=request.get_json(), headers=dict(request.headers))
+    elif method == 'DELETE':
+        resp = requests.delete(fastapi_url, headers=dict(request.headers))
+    else:
+        return jsonify({"status": "error", "message": f"Unsupported method: {method}"}), 405
+    
+    return resp.content, resp.status_code, resp.headers.items()
+
 if __name__ == '__main__':
     socketio.run(app, debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), 
                  allow_unsafe_werkzeug=True, use_reloader=True, log_output=True)
