@@ -589,6 +589,9 @@ def admin_polling_places(division=None):
         flash("Admin access required", "error")
         return redirect(url_for('get_dashboard'))
     
+    if not division and request.args.get('division'):
+        division = request.args.get('division')
+    
     electorates = get_all_electorates()
     
     if not division and electorates:
