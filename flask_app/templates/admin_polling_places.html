@@ -247,13 +247,20 @@
 
         // Load electorates and current results data when the page loads
         document.addEventListener('DOMContentLoaded', function() {
+            console.log("DOMContentLoaded event fired");
             loadElectorates();
             loadCurrentResults();
             
             // Check if the table is empty and load polling places directly
             const tableBody = document.querySelector('tbody');
+            console.log("Table body found:", tableBody);
+            console.log("Table body children length:", tableBody ? tableBody.children.length : "N/A");
+            
             if (tableBody && tableBody.children.length === 0) {
+                console.log("Table is empty, loading polling places directly");
                 loadPollingPlaces();
+            } else {
+                console.log("Table is not empty, skipping direct polling places load");
             }
         });
         
