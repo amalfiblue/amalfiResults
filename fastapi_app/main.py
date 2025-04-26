@@ -688,6 +688,34 @@ async def get_polling_places(division: str):
         logger.error(f"Error getting polling places for division {division}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/booth-results")
+async def get_booth_results(electorate: Optional[str] = None):
+    """
+    Get booth results for a specific electorate/division
+    """
+    try:
+        import sys
+        from pathlib import Path
+        
+        # Get the parent directory of the current file's directory
+        parent_dir = str(Path(__file__).parent.parent)
+        if parent_dir not in sys.path:
+            logger.info(f"Adding parent directory to Python path: {parent_dir}")
+            sys.path.append(parent_dir)
+            
+        from utils.booth_results_processor import get_booth_results_for_division
+        
+        if not electorate:
+            return {"status": "error", "message": "Electorate parameter is required"}
+            
+        booth_results = get_booth_results_for_division(electorate)
+        logger.info(f"Retrieved {len(booth_results)} booth results for electorate {electorate}")
+        
+        return {"status": "success", "booth_results": booth_results}
+    except Exception as e:
+        logger.error(f"Error getting booth results for electorate {electorate}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/admin/reset-results")
 async def reset_results(request: Request):
     """
