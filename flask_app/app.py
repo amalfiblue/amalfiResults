@@ -311,7 +311,7 @@ def get_candidates_page():
         messages.append((category, message))
     
     return render_template(
-        'candidates.html', 
+        'candidates_new.html', 
         candidates=candidates_data, 
         electorates=electorates,
         electorate=electorate,
@@ -501,13 +501,23 @@ def get_dashboard(electorate=None):
         is_admin=is_admin
     )
 
+@app.route('/admin/tcp-candidates', methods=['GET'])
 @app.route('/admin/tcp-candidates/<electorate>', methods=['GET', 'POST'])
 @login_required
-def admin_tcp_candidates(electorate):
+def admin_tcp_candidates(electorate=None):
     """Admin page to set TCP candidates for an electorate - frontend directly queries FastAPI"""
     if not current_user.is_admin:
         flash("Admin access required", "error")
         return redirect(url_for('get_dashboard'))
+        
+    # If no electorate is specified, redirect to the first available electorate
+    if electorate is None:
+        electorates = get_all_electorates()
+        if electorates:
+            return redirect(url_for('admin_tcp_candidates', electorate=electorates[0]))
+        else:
+            flash("No electorates available", "error")
+            return redirect(url_for('get_dashboard'))
     
     if request.method == 'POST':
         return redirect(url_for('admin_tcp_candidates', electorate=electorate))
