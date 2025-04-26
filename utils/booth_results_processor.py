@@ -217,6 +217,45 @@ def get_booth_results_for_division(division_name: str) -> List[Dict[str, Any]]:
         rows = cursor.fetchall()
         results = [dict(row) for row in rows]
         
+        # Get TCP candidates for this division
+        tcp_candidates = get_tcp_candidates_for_division(division_name)
+        
+        for result in results:
+            result['tcp_candidates'] = tcp_candidates
+            
+            if len(tcp_candidates) >= 2:
+                try:
+                    raw_data = json.loads(result.get('data', '{}'))
+                    
+                    # Find the TCP percentages for the actual candidates
+                    tcp_candidate_1 = tcp_candidates[0]['candidate_name']
+                    tcp_candidate_2 = tcp_candidates[1]['candidate_name']
+                    
+                    tcp_candidate_1_votes = raw_data.get(f"{tcp_candidate_1} Votes", 0)
+                    tcp_candidate_1_percentage = raw_data.get(f"{tcp_candidate_1} Percentage", 0)
+                    tcp_candidate_2_votes = raw_data.get(f"{tcp_candidate_2} Votes", 0)
+                    tcp_candidate_2_percentage = raw_data.get(f"{tcp_candidate_2} Percentage", 0)
+                    
+                    result['tcp_candidate_1_name'] = tcp_candidate_1
+                    result['tcp_candidate_1_party'] = tcp_candidates[0]['party']
+                    result['tcp_candidate_1_votes'] = tcp_candidate_1_votes
+                    result['tcp_candidate_1_percentage'] = tcp_candidate_1_percentage
+                    
+                    result['tcp_candidate_2_name'] = tcp_candidate_2
+                    result['tcp_candidate_2_party'] = tcp_candidates[1]['party']
+                    result['tcp_candidate_2_votes'] = tcp_candidate_2_votes
+                    result['tcp_candidate_2_percentage'] = tcp_candidate_2_percentage
+                    
+                    # Calculate swing based on TCP candidates
+                    if tcp_candidate_1_percentage and tcp_candidate_2_percentage:
+                        result['tcp_swing'] = tcp_candidate_1_percentage - tcp_candidate_2_percentage
+                    else:
+                        result['tcp_swing'] = 0
+                        
+                except Exception as e:
+                    logger.error(f"Error processing TCP data for polling place: {e}")
+                    pass
+        
         conn.close()
         logger.info(f"Found {len(results)} booth results for division {division_name}")
         return results
@@ -269,6 +308,39 @@ def get_booth_results_for_polling_place(division_name: str, polling_place_name: 
     except Exception as e:
         logger.error(f"Error getting booth results for polling place {polling_place_name} in division {division_name}: {e}")
         return None
+
+def get_tcp_candidates_for_division(division_name: str) -> List[Dict[str, Any]]:
+    """
+    Get TCP candidates for a specific division from the database.
+    
+    Args:
+        division_name: Name of the division/electorate
+        
+    Returns:
+        List of TCP candidate dictionaries
+    """
+    try:
+        logger.info(f"Getting TCP candidates for division: {division_name}")
+        db_path_str = str(DB_PATH)
+        conn = sqlite3.connect(db_path_str)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        SELECT * FROM tcp_candidates 
+        WHERE electorate = ? 
+        ORDER BY id
+        ''', (division_name,))
+        
+        rows = cursor.fetchall()
+        results = [dict(row) for row in rows]
+        
+        conn.close()
+        logger.info(f"Found {len(results)} TCP candidates for division {division_name}")
+        return results
+    except Exception as e:
+        logger.error(f"Error getting TCP candidates for division {division_name}: {e}")
+        return []
 
 def calculate_swing(current_result: Dict[str, Any], historical_result: Dict[str, Any]) -> float:
     """
