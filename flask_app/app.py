@@ -827,26 +827,28 @@ def load_reference_data():
 def api_proxy(path):
     """Proxy all /api/* requests to the FastAPI server"""
     method = request.method
-    query_string = request.query_string.decode('utf-8')
-    fastapi_url = f"{FASTAPI_URL}/{path}"
+    app.logger.info(f"Proxying {method} request to /{path}")
     
-    if query_string:
-        fastapi_url += f"?{query_string}"
-    
-    app.logger.info(f"Proxying {method} request to {fastapi_url}")
-    
-    if method == 'GET':
-        resp = requests.get(fastapi_url, headers=dict(request.headers))
-    elif method == 'POST':
-        resp = requests.post(fastapi_url, json=request.get_json(), headers=dict(request.headers))
-    elif method == 'PUT':
-        resp = requests.put(fastapi_url, json=request.get_json(), headers=dict(request.headers))
-    elif method == 'DELETE':
-        resp = requests.delete(fastapi_url, headers=dict(request.headers))
-    else:
-        return jsonify({"status": "error", "message": f"Unsupported method: {method}"}), 405
-    
-    return resp.content, resp.status_code, resp.headers.items()
+    try:
+        if method.lower() == 'get':
+            response = api_call(f"/{path}", method='get', params=request.args)
+            return jsonify(response)
+        elif method.lower() == 'post':
+            data = request.get_json(silent=True)
+            response = api_call(f"/{path}", method='post', data=data)
+            return jsonify(response)
+        elif method.lower() == 'put':
+            data = request.get_json(silent=True)
+            response = api_call(f"/{path}", method='put', data=data)
+            return jsonify(response)
+        elif method.lower() == 'delete':
+            response = api_call(f"/{path}", method='delete')
+            return jsonify(response)
+        else:
+            return jsonify({"status": "error", "message": f"Unsupported method: {method}"}), 405
+    except Exception as e:
+        app.logger.error(f"Error proxying {method} request to /{path}: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == '__main__':
     socketio.run(app, debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), 
