@@ -288,7 +288,9 @@
         
         // Function to load polling places directly from the FastAPI
         function loadPollingPlaces() {
-            const division = document.querySelector('#division').value;
+            // Get division from URL parameter or dropdown
+            const urlParams = new URLSearchParams(window.location.search);
+            const division = urlParams.get('division') || document.querySelector('#division').value;
             if (!division) return;
             
             console.log("Loading polling places for division:", division);
@@ -300,13 +302,15 @@
                 }
             })
             .then(response => {
+                console.log("Fetch response status:", response.status);
                 if (!response.ok) {
-                    throw new Error('Network response was not ok');
+                    throw new Error(`HTTP error! Status: ${response.status}`);
                 }
                 return response.json();
             })
             .then(data => {
                 console.log("Received booth results:", data);
+                console.log("Data type:", typeof data, "Data structure:", Object.keys(data));
                 if (data.status === 'success' && data.booth_results) {
                     const tableBody = document.querySelector('tbody');
                     tableBody.innerHTML = ''; // Clear any existing rows
