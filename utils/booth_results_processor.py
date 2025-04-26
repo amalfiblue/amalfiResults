@@ -229,12 +229,35 @@ def get_booth_results_for_division(division_name: str) -> List[Dict[str, Any]]:
                     
                     # Find the TCP percentages for the actual candidates
                     tcp_candidate_1 = tcp_candidates[0]['candidate_name']
+                    tcp_candidate_1_party = tcp_candidates[0]['party']
                     tcp_candidate_2 = tcp_candidates[1]['candidate_name']
+                    tcp_candidate_2_party = tcp_candidates[1]['party']
                     
-                    tcp_candidate_1_votes = raw_data.get(f"{tcp_candidate_1} Votes", 0)
-                    tcp_candidate_1_percentage = raw_data.get(f"{tcp_candidate_1} Percentage", 0)
-                    tcp_candidate_2_votes = raw_data.get(f"{tcp_candidate_2} Votes", 0)
-                    tcp_candidate_2_percentage = raw_data.get(f"{tcp_candidate_2} Percentage", 0)
+                    if tcp_candidate_1_party in ['LIB', 'NAT', 'LNP']:
+                        tcp_candidate_1_votes = raw_data.get("Liberal/National Coalition Votes", 0)
+                        tcp_candidate_1_percentage = raw_data.get("Liberal/National Coalition Percentage", 0)
+                    elif tcp_candidate_1_party == 'ALP':
+                        tcp_candidate_1_votes = raw_data.get("Australian Labor Party Votes", 0)
+                        tcp_candidate_1_percentage = raw_data.get("Australian Labor Party Percentage", 0)
+                    else:
+                        tcp_candidate_1_votes = raw_data.get(f"{tcp_candidate_1} Votes", 0)
+                        tcp_candidate_1_percentage = raw_data.get(f"{tcp_candidate_1} Percentage", 0)
+                        if not tcp_candidate_1_votes and not tcp_candidate_1_percentage:
+                            tcp_candidate_1_votes = raw_data.get("Liberal/National Coalition Votes", 0)
+                            tcp_candidate_1_percentage = raw_data.get("Liberal/National Coalition Percentage", 0)
+                    
+                    if tcp_candidate_2_party in ['LIB', 'NAT', 'LNP']:
+                        tcp_candidate_2_votes = raw_data.get("Liberal/National Coalition Votes", 0)
+                        tcp_candidate_2_percentage = raw_data.get("Liberal/National Coalition Percentage", 0)
+                    elif tcp_candidate_2_party == 'ALP':
+                        tcp_candidate_2_votes = raw_data.get("Australian Labor Party Votes", 0)
+                        tcp_candidate_2_percentage = raw_data.get("Australian Labor Party Percentage", 0)
+                    else:
+                        tcp_candidate_2_votes = raw_data.get(f"{tcp_candidate_2} Votes", 0)
+                        tcp_candidate_2_percentage = raw_data.get(f"{tcp_candidate_2} Percentage", 0)
+                        if not tcp_candidate_2_votes and not tcp_candidate_2_percentage:
+                            tcp_candidate_2_votes = raw_data.get("Australian Labor Party Votes", 0)
+                            tcp_candidate_2_percentage = raw_data.get("Australian Labor Party Percentage", 0)
                     
                     result['tcp_candidate_1_name'] = tcp_candidate_1
                     result['tcp_candidate_1_party'] = tcp_candidates[0]['party']
