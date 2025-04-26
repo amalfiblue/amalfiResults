@@ -233,22 +233,35 @@ def get_booth_results_for_division(division_name: str) -> List[Dict[str, Any]]:
                     tcp_candidate_2 = tcp_candidates[1]['candidate_name']
                     tcp_candidate_2_party = tcp_candidates[1]['party']
                     
+                    logger.info(f"Raw data keys for polling place: {result.get('polling_place_name', 'Unknown')}")
+                    logger.info(f"TCP candidates: {tcp_candidate_1} ({tcp_candidate_1_party}) and {tcp_candidate_2} ({tcp_candidate_2_party})")
+                    logger.info(f"Raw data keys: {list(raw_data.keys())}")
+                    
+                    # For Liberal/National candidates
                     if tcp_candidate_1_party in ['LIB', 'NAT', 'LNP']:
                         tcp_candidate_1_votes = int(raw_data.get("Liberal/National Coalition Votes", 0))
                         tcp_candidate_1_percentage = float(raw_data.get("Liberal/National Coalition Percentage", 0))
+                    # For Labor candidates
                     elif tcp_candidate_1_party == 'ALP':
                         tcp_candidate_1_votes = int(raw_data.get("Australian Labor Party Votes", 0))
                         tcp_candidate_1_percentage = float(raw_data.get("Australian Labor Party Percentage", 0))
+                    # For independent candidates - use 100% minus the other candidate's percentage
                     else:
-                        tcp_candidate_1_votes = int(raw_data.get(f"{tcp_candidate_1} Votes", 0))
-                        tcp_candidate_1_percentage = float(raw_data.get(f"{tcp_candidate_1} Percentage", 0))
-                        if not tcp_candidate_1_votes and not tcp_candidate_1_percentage:
-                            for key in raw_data.keys():
-                                if "Independent" in key or "IND" in key:
-                                    if "Votes" in key:
-                                        tcp_candidate_1_votes = int(raw_data.get(key, 0))
-                                    elif "Percentage" in key:
-                                        tcp_candidate_1_percentage = float(raw_data.get(key, 0))
+                        # We need to calculate Andrew Wilkie's percentage as 100% - Simon Behrakis's percentage
+                        
+                        if tcp_candidate_2_party in ['LIB', 'NAT', 'LNP']:
+                            lib_percentage = float(raw_data.get("Liberal/National Coalition Percentage", 0))
+                            # Calculate independent percentage as 100% - Liberal percentage
+                            tcp_candidate_1_percentage = 100.0 - lib_percentage
+                            tcp_candidate_1_votes = int(raw_data.get("TotalVotes", 0)) - int(raw_data.get("Liberal/National Coalition Votes", 0))
+                        elif tcp_candidate_2_party == 'ALP':
+                            alp_percentage = float(raw_data.get("Australian Labor Party Percentage", 0))
+                            # Calculate independent percentage as 100% - Labor percentage
+                            tcp_candidate_1_percentage = 100.0 - alp_percentage
+                            tcp_candidate_1_votes = int(raw_data.get("TotalVotes", 0)) - int(raw_data.get("Australian Labor Party Votes", 0))
+                        else:
+                            tcp_candidate_1_votes = 0
+                            tcp_candidate_1_percentage = 0
                     
                     if tcp_candidate_2_party in ['LIB', 'NAT', 'LNP']:
                         tcp_candidate_2_votes = int(raw_data.get("Liberal/National Coalition Votes", 0))
@@ -257,15 +270,20 @@ def get_booth_results_for_division(division_name: str) -> List[Dict[str, Any]]:
                         tcp_candidate_2_votes = int(raw_data.get("Australian Labor Party Votes", 0))
                         tcp_candidate_2_percentage = float(raw_data.get("Australian Labor Party Percentage", 0))
                     else:
-                        tcp_candidate_2_votes = int(raw_data.get(f"{tcp_candidate_2} Votes", 0))
-                        tcp_candidate_2_percentage = float(raw_data.get(f"{tcp_candidate_2} Percentage", 0))
-                        if not tcp_candidate_2_votes and not tcp_candidate_2_percentage:
-                            for key in raw_data.keys():
-                                if "Independent" in key or "IND" in key:
-                                    if "Votes" in key:
-                                        tcp_candidate_2_votes = int(raw_data.get(key, 0))
-                                    elif "Percentage" in key:
-                                        tcp_candidate_2_percentage = float(raw_data.get(key, 0))
+                        # For independent candidates - use 100% minus the other candidate's percentage
+                        if tcp_candidate_1_party in ['LIB', 'NAT', 'LNP']:
+                            lib_percentage = float(raw_data.get("Liberal/National Coalition Percentage", 0))
+                            # Calculate independent percentage as 100% - Liberal percentage
+                            tcp_candidate_2_percentage = 100.0 - lib_percentage
+                            tcp_candidate_2_votes = int(raw_data.get("TotalVotes", 0)) - int(raw_data.get("Liberal/National Coalition Votes", 0))
+                        elif tcp_candidate_1_party == 'ALP':
+                            alp_percentage = float(raw_data.get("Australian Labor Party Percentage", 0))
+                            # Calculate independent percentage as 100% - Labor percentage
+                            tcp_candidate_2_percentage = 100.0 - alp_percentage
+                            tcp_candidate_2_votes = int(raw_data.get("TotalVotes", 0)) - int(raw_data.get("Australian Labor Party Votes", 0))
+                        else:
+                            tcp_candidate_2_votes = 0
+                            tcp_candidate_2_percentage = 0
                     
                     result['tcp_candidate_1_name'] = tcp_candidate_1
                     result['tcp_candidate_1_party'] = tcp_candidates[0]['party']
