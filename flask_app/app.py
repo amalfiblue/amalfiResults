@@ -337,43 +337,48 @@ def update_aec_data():
 
 @app.route('/api/results')
 def api_results():
-    """Redirect to FastAPI service for all results"""
+    """Proxy to FastAPI service for all results"""
     query_string = request.query_string.decode('utf-8')
-    fastapi_url = f"{FASTAPI_URL}/results"
+    endpoint = "/results"
     if query_string:
-        fastapi_url += f"?{query_string}"
-    return redirect(fastapi_url)
+        endpoint += f"?{query_string}"
+    result = api_call(endpoint)
+    return jsonify(result)
 
 @app.route('/api/results/<int:result_id>')
 def api_result_detail(result_id):
-    """Redirect to FastAPI service for a specific result"""
-    fastapi_url = f"{FASTAPI_URL}/results/{result_id}"
-    return redirect(fastapi_url)
+    """Proxy to FastAPI service for a specific result"""
+    endpoint = f"/results/{result_id}"
+    result = api_call(endpoint)
+    return jsonify(result)
 
 @app.route('/api/candidates')
 def api_candidates():
-    """Redirect to FastAPI service for candidates"""
+    """Proxy to FastAPI service for candidates"""
     query_string = request.query_string.decode('utf-8')
     electorate = request.args.get('electorate', '')
     
     if electorate:
-        fastapi_url = f"{FASTAPI_URL}/candidates/{electorate}"
+        endpoint = f"/candidates/{electorate}"
         other_params = {k: v for k, v in request.args.items() if k != 'electorate'}
         if other_params:
             query_string = '&'.join([f"{k}={v}" for k, v in other_params.items()])
-            fastapi_url += f"?{query_string}"
+            endpoint += f"?{query_string}"
     else:
-        fastapi_url = f"{FASTAPI_URL}/candidates"
+        endpoint = "/candidates"
         
-        if query_string:
-            fastapi_url += f"?{query_string}"
-    return redirect(fastapi_url)
+        if query_string and not electorate:
+            endpoint += f"?{query_string}"
+    
+    result = api_call(endpoint)
+    return jsonify(result)
 
 @app.route('/api/electorates')
 def api_electorates():
-    """Redirect to FastAPI service for electorates"""
-    fastapi_url = f"{FASTAPI_URL}/electorates"
-    return redirect(fastapi_url)
+    """Proxy to FastAPI service for electorates"""
+    endpoint = "/electorates"
+    result = api_call(endpoint)
+    return jsonify(result)
 
 @app.route('/booth-results')
 def get_booth_results_page():
@@ -432,12 +437,13 @@ def update_booth_data():
 
 @app.route('/api/booth-results')
 def api_booth_results():
-    """Redirect to FastAPI service for booth results"""
+    """Proxy to FastAPI service for booth results"""
     query_string = request.query_string.decode('utf-8')
-    fastapi_url = f"{FASTAPI_URL}/booth-results"
+    endpoint = "/booth-results"
     if query_string:
-        fastapi_url += f"?{query_string}"
-    return redirect(fastapi_url)
+        endpoint += f"?{query_string}"
+    result = api_call(endpoint)
+    return jsonify(result)
 
 @app.route('/dashboard')
 @app.route('/dashboard/<electorate>')
@@ -543,9 +549,10 @@ def admin_tcp_candidates(electorate=None):
 
 @app.route('/api/dashboard/<electorate>')
 def api_dashboard(electorate):
-    """API endpoint for dashboard data - redirects to FastAPI endpoint"""
-    fastapi_url = f"{FASTAPI_URL}/api/dashboard/{electorate}"
-    return redirect(fastapi_url)
+    """API endpoint for dashboard data - proxies to FastAPI endpoint"""
+    endpoint = f"/api/dashboard/{electorate}"
+    result = api_call(endpoint)
+    return jsonify(result)
 
 @app.route('/api/notify', methods=['POST'])
 def notify():
