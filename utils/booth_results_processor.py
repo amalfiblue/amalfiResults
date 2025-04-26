@@ -243,8 +243,12 @@ def get_booth_results_for_division(division_name: str) -> List[Dict[str, Any]]:
                         tcp_candidate_1_votes = int(raw_data.get(f"{tcp_candidate_1} Votes", 0))
                         tcp_candidate_1_percentage = float(raw_data.get(f"{tcp_candidate_1} Percentage", 0))
                         if not tcp_candidate_1_votes and not tcp_candidate_1_percentage:
-                            tcp_candidate_1_votes = int(raw_data.get("Liberal/National Coalition Votes", 0))
-                            tcp_candidate_1_percentage = float(raw_data.get("Liberal/National Coalition Percentage", 0))
+                            for key in raw_data.keys():
+                                if "Independent" in key or "IND" in key:
+                                    if "Votes" in key:
+                                        tcp_candidate_1_votes = int(raw_data.get(key, 0))
+                                    elif "Percentage" in key:
+                                        tcp_candidate_1_percentage = float(raw_data.get(key, 0))
                     
                     if tcp_candidate_2_party in ['LIB', 'NAT', 'LNP']:
                         tcp_candidate_2_votes = int(raw_data.get("Liberal/National Coalition Votes", 0))
@@ -256,8 +260,12 @@ def get_booth_results_for_division(division_name: str) -> List[Dict[str, Any]]:
                         tcp_candidate_2_votes = int(raw_data.get(f"{tcp_candidate_2} Votes", 0))
                         tcp_candidate_2_percentage = float(raw_data.get(f"{tcp_candidate_2} Percentage", 0))
                         if not tcp_candidate_2_votes and not tcp_candidate_2_percentage:
-                            tcp_candidate_2_votes = int(raw_data.get("Australian Labor Party Votes", 0))
-                            tcp_candidate_2_percentage = float(raw_data.get("Australian Labor Party Percentage", 0))
+                            for key in raw_data.keys():
+                                if "Independent" in key or "IND" in key:
+                                    if "Votes" in key:
+                                        tcp_candidate_2_votes = int(raw_data.get(key, 0))
+                                    elif "Percentage" in key:
+                                        tcp_candidate_2_percentage = float(raw_data.get(key, 0))
                     
                     result['tcp_candidate_1_name'] = tcp_candidate_1
                     result['tcp_candidate_1_party'] = tcp_candidates[0]['party']
