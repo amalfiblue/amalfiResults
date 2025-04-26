@@ -165,7 +165,7 @@
         function resetBoothResults(division, boothName) {
             if (confirm(`Are you sure you want to reset results for ${boothName}?`)) {
                 // Direct API call to FastAPI
-                fetch('http://localhost:8000/admin/reset-results', {
+                fetch('/api/admin/reset-results', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -206,7 +206,7 @@
                 const allResults = resetOption === 'all';
                 
                 // Direct API call to FastAPI
-                fetch('http://localhost:8000/admin/reset-results', {
+                fetch('/api/admin/reset-results', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -271,7 +271,7 @@
             
             console.log("Loading polling places for division:", division);
             
-            fetch(`http://localhost:8000/booth-results?electorate=${encodeURIComponent(division)}`, {
+            fetch(`/api/booth-results?electorate=${encodeURIComponent(division)}`, {
                 method: 'GET',
                 headers: {
                     'Accept': 'application/json',
@@ -364,7 +364,7 @@
         
         // Function to load electorates directly from FastAPI
         function loadElectorates() {
-            fetch('http://localhost:8000/electorates', {
+            fetch('/api/electorates', {
                 method: 'GET',
                 headers: {
                     'Accept': 'application/json',
@@ -415,7 +415,7 @@
             const division = document.querySelector('#division').value;
             
             // Direct API call to FastAPI to get results
-            fetch(`http://localhost:8000/results?electorate=${encodeURIComponent(division)}`, {
+            fetch(`/api/results?electorate=${encodeURIComponent(division)}`, {
                 method: 'GET',
                 headers: {
                     'Accept': 'application/json',
@@ -446,7 +446,7 @@
             // Clear existing rows if no polling places are displayed
             if (tableBody.children.length === 0) {
                 // Fetch polling places data directly from FastAPI
-                fetch(`http://localhost:8000/booth-results?electorate=${encodeURIComponent(division)}`, {
+                fetch(`/api/booth-results?electorate=${encodeURIComponent(division)}`, {
                     method: 'GET',
                     headers: {
                         'Accept': 'application/json',
