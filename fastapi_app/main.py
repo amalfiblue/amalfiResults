@@ -1141,21 +1141,58 @@ async def api_candidates_by_electorate(electorate: str, candidate_type: str = "h
     Get candidates for a specific electorate
     """
     try:
-        conn = sqlite3.connect(SQLALCHEMY_DATABASE_URL.replace('sqlite:///', ''))
+        db_path = SQLALCHEMY_DATABASE_URL.replace('sqlite:///', '')
+        logger.info(f"Connecting to database at: {db_path}")
+        logger.info(f"Database file exists: {os.path.exists(db_path)}")
+        
+        conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
+        
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='candidates'")
+        table_exists = cursor.fetchone() is not None
+        logger.info(f"Candidates table exists: {table_exists}")
+        
+        if table_exists:
+            cursor.execute("SELECT COUNT(*) FROM candidates")
+            total_candidates = cursor.fetchone()[0]
+            logger.info(f"Total candidates in database: {total_candidates}")
+            
+            # Check all available electorates
+            cursor.execute("SELECT DISTINCT electorate FROM candidates")
+            all_electorates = [row[0] for row in cursor.fetchall()]
+            logger.info(f"Available electorates: {all_electorates}")
+            
+            cursor.execute("SELECT DISTINCT candidate_type FROM candidates")
+            all_types = [row[0] for row in cursor.fetchall()]
+            logger.info(f"Available candidate types: {all_types}")
         
         logger.info(f"Filtering candidates for electorate: {electorate}, candidate_type: {candidate_type}")
         
         # Use electorate column for both senate and house candidates
+        query = ""
+        params = ()
+        
         if candidate_type.lower() == "senate":
-            cursor.execute("SELECT * FROM candidates WHERE electorate = ? AND candidate_type = 'senate' ORDER BY candidate_name", (electorate,))
+            query = "SELECT * FROM candidates WHERE electorate = ? AND candidate_type = 'senate' ORDER BY candidate_name"
+            params = (electorate,)
         else:
-            cursor.execute("SELECT * FROM candidates WHERE electorate = ? AND candidate_type = 'house' ORDER BY candidate_name", (electorate,))
+            query = "SELECT * FROM candidates WHERE electorate = ? AND candidate_type = 'house' ORDER BY candidate_name"
+            params = (electorate,)
+        
+        logger.info(f"Executing query: {query} with params: {params}")
+        cursor.execute(query, params)
+        
+        raw_results = cursor.fetchall()
+        logger.info(f"Raw query results: {raw_results}")
         
         columns = [col[0] for col in cursor.description]
-        candidates = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        logger.info(f"Columns: {columns}")
+        
+        candidates = [dict(zip(columns, row)) for row in raw_results]
         
         logger.info(f"Found {len(candidates)} candidates matching the criteria")
+        logger.info(f"Candidates: {candidates}")
+        
         conn.close()
         
         return {
