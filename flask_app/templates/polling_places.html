@@ -136,12 +136,14 @@
     document.addEventListener('DOMContentLoaded', function() {
         loadElectorates();
         
-        const electorate = document.getElementById('electorate').value;
+        const electorate = document.getElementById('electorate').value || '{{ electorate }}';
         const boothFilter = document.getElementById('booth').value;
+        
+        console.log("DOMContentLoaded - electorate:", electorate);
         
         if (electorate) {
             loadCurrentResults(electorate, boothFilter);
-            loadPollingPlaces(electorate); // Add this line to load polling places
+            loadPollingPlaces(electorate);
         }
         
         // Set up form submission handler
@@ -315,6 +317,7 @@
     // Function to load polling places from FastAPI
     function loadPollingPlaces(electorate) {
         if (!electorate) return;
+        console.log("Loading polling places for electorate:", electorate);
         
         fetch(`/api/booth-results?electorate=${encodeURIComponent(electorate)}`, {
             method: 'GET',
