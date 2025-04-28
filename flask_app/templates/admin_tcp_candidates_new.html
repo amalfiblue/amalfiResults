@@ -225,7 +225,13 @@
         const tcpCandidatesSection = document.querySelector('.mb-4:first-of-type');
         
         if (tcpCandidatesSection) {
-            const alertDiv = tcpCandidatesSection.querySelector('div');
+            // Check if alert div exists, create it if it doesn't
+            let alertDiv = tcpCandidatesSection.querySelector('div');
+            
+            if (!alertDiv) {
+                alertDiv = document.createElement('div');
+                tcpCandidatesSection.appendChild(alertDiv);
+            }
             
             if (tcpCandidateNames && tcpCandidateNames.length > 0) {
                 alertDiv.className = 'alert alert-info';
