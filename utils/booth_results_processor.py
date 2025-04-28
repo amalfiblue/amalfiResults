@@ -615,9 +615,20 @@ def process_polling_places_file(file_path: Path) -> List[Dict[str, Any]]:
             import csv
             reader = csv.DictReader(f)
             
+            headers = reader.fieldnames
+            logger.info(f"CSV headers: {headers}")
+            
+            valid_count = 0
+            skipped_count = 0
+            
             for row in reader:
                 try:
                     if row.get('Status') == 'Abolition':
+                        skipped_count += 1
+                        continue
+                    
+                    if not row.get('PPId') or not row.get('DivName'):
+                        skipped_count += 1
                         continue
                         
                     division_name = row.get('DivName', '').strip()
@@ -628,27 +639,32 @@ def process_polling_places_file(file_path: Path) -> List[Dict[str, Any]]:
                     
                     address_parts = []
                     if row.get('PremisesName'):
-                        address_parts.append(row.get('PremisesName'))
+                        address_parts.append(row.get('PremisesName').strip())
                     if row.get('Address1'):
-                        address_parts.append(row.get('Address1'))
+                        address_parts.append(row.get('Address1').strip())
                     if row.get('Address2') and row.get('Address2').strip():
-                        address_parts.append(row.get('Address2'))
+                        address_parts.append(row.get('Address2').strip())
                     if row.get('Address3') and row.get('Address3').strip():
-                        address_parts.append(row.get('Address3'))
+                        address_parts.append(row.get('Address3').strip())
                     if row.get('Locality'):
-                        address_parts.append(row.get('Locality'))
+                        address_parts.append(row.get('Locality').strip())
                     if row.get('AddrStateAb'):
-                        address_parts.append(row.get('AddrStateAb'))
+                        address_parts.append(row.get('AddrStateAb').strip())
                     if row.get('Postcode'):
-                        address_parts.append(row.get('Postcode'))
+                        address_parts.append(row.get('Postcode').strip())
                     
                     address = ", ".join([part for part in address_parts if part and part.strip()])
                     
-                    # Get polling place ID, defaulting to 0 if not available
                     try:
                         polling_place_id = int(row.get('PPId', 0))
+                        if polling_place_id <= 0:
+                            logger.warning(f"Invalid polling place ID: {polling_place_id}, skipping row")
+                            skipped_count += 1
+                            continue
                     except (ValueError, TypeError):
-                        polling_place_id = 0
+                        logger.warning(f"Invalid polling place ID format: {row.get('PPId')}, skipping row")
+                        skipped_count += 1
+                        continue
                         
                     try:
                         division_id = int(row.get('DivId', 0))
@@ -666,7 +682,7 @@ def process_polling_places_file(file_path: Path) -> List[Dict[str, Any]]:
                         longitude = None
                     
                     place = {
-                        'state': row.get('StateAb', ''),
+                        'state': row.get('StateAb', '').strip(),
                         'division_id': division_id,
                         'division_name': division_name,
                         'polling_place_id': polling_place_id,
@@ -674,16 +690,31 @@ def process_polling_places_file(file_path: Path) -> List[Dict[str, Any]]:
                         'address': address,
                         'latitude': latitude,
                         'longitude': longitude,
-                        'status': row.get('Status', ''),
-                        'wheelchair_access': row.get('WheelchairAccess', '')
+                        'status': row.get('Status', '').strip(),
+                        'wheelchair_access': row.get('WheelchairAccess', '').strip()
                     }
                     
+                    if not place['state'] or not place['division_name'] or not place['polling_place_name']:
+                        logger.warning(f"Missing required fields in row, skipping: {place}")
+                        skipped_count += 1
+                        continue
+                    
                     polling_places.append(place)
+                    valid_count += 1
+                    
+                    if valid_count % 100 == 0:
+                        logger.info(f"Processed {valid_count} valid polling places so far")
+                        
                 except Exception as e:
                     logger.warning(f"Error processing row: {row}, error: {e}")
+                    skipped_count += 1
                     continue
                     
-        logger.info(f"Processed {len(polling_places)} polling places from file")
+        logger.info(f"Processed {len(polling_places)} valid polling places from file (skipped {skipped_count})")
+        
+        if polling_places:
+            logger.info(f"Sample polling place: {polling_places[0]}")
+            
         return polling_places
     except Exception as e:
         logger.error(f"Error processing polling places file: {e}")
@@ -711,9 +742,31 @@ def save_polling_places_to_database(polling_places: List[Dict[str, Any]]) -> boo
         conn = sqlite3.connect(db_path_str)
         cursor = conn.cursor()
         
+        # First, completely clear the polling_places table
         cursor.execute("DELETE FROM polling_places")
+        conn.commit()
+        
+        cursor.execute("SELECT COUNT(*) FROM polling_places")
+        count = cursor.fetchone()[0]
+        logger.info(f"Polling places table has {count} records after clearing")
+        
+        valid_polling_places = []
+        invalid_count = 0
         
         for place in polling_places:
+            if (not place.get('state') or 
+                not place.get('division_name') or 
+                not place.get('polling_place_name') or 
+                place.get('polling_place_id', 0) <= 0 or 
+                place.get('division_id', 0) <= 0):
+                invalid_count += 1
+                continue
+                
+            valid_polling_places.append(place)
+        
+        logger.info(f"Filtered out {invalid_count} invalid records, proceeding with {len(valid_polling_places)} valid records")
+        
+        for place in valid_polling_places:
             cursor.execute('''
             INSERT INTO polling_places
             (state, division_id, division_name, polling_place_id, polling_place_name, 
@@ -725,18 +778,38 @@ def save_polling_places_to_database(polling_places: List[Dict[str, Any]]) -> boo
                 place['division_name'],
                 place['polling_place_id'],
                 place['polling_place_name'],
-                place.get('address'),
+                place.get('address', ''),
                 place.get('latitude'),
                 place.get('longitude'),
-                place.get('status'),
-                place.get('wheelchair_access'),
+                place.get('status', 'Current'),
+                place.get('wheelchair_access', ''),
                 json.dumps(place)
             ))
         
         conn.commit()
+        
+        cursor.execute("""
+        SELECT COUNT(*) FROM polling_places 
+        WHERE state = '' OR division_id = 0 OR polling_place_id = 0 OR 
+              division_name = '' OR polling_place_name = ''
+        """)
+        empty_count = cursor.fetchone()[0]
+        
+        if empty_count > 0:
+            logger.warning(f"Found {empty_count} empty records after insertion, removing them")
+            cursor.execute("""
+            DELETE FROM polling_places 
+            WHERE state = '' OR division_id = 0 OR polling_place_id = 0 OR 
+                  division_name = '' OR polling_place_name = ''
+            """)
+            conn.commit()
+        
+        cursor.execute("SELECT COUNT(*) FROM polling_places")
+        final_count = cursor.fetchone()[0]
+        logger.info(f"Successfully saved {final_count} polling places to database")
+        
         conn.close()
-        logger.info(f"Successfully saved {len(polling_places)} polling places to database")
-        return True
+        return final_count > 0
     except Exception as e:
         logger.error(f"Error saving polling places to database: {e}")
         import traceback
@@ -758,7 +831,13 @@ def extract_and_save_polling_places() -> bool:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
+        # First, completely clear the polling_places table
         cursor.execute("DELETE FROM polling_places")
+        conn.commit()
+        
+        cursor.execute("SELECT COUNT(*) FROM polling_places")
+        count = cursor.fetchone()[0]
+        logger.info(f"Polling places table has {count} records after clearing")
         
         # Get unique polling places from booth_results_2022
         cursor.execute('''
@@ -769,16 +848,33 @@ def extract_and_save_polling_places() -> bool:
             polling_place_id, 
             polling_place_name
         FROM booth_results_2022
+        WHERE state != '' AND division_id > 0 AND polling_place_id > 0 
+        AND division_name != '' AND polling_place_name != ''
         ORDER BY division_name, polling_place_name
         ''')
         
         polling_places = [dict(row) for row in cursor.fetchall()]
-        logger.info(f"Found {len(polling_places)} unique polling places from 2022 data")
+        logger.info(f"Found {len(polling_places)} unique valid polling places from 2022 data")
+        
+        valid_polling_places = []
+        invalid_count = 0
         
         for place in polling_places:
+            if (not place.get('state') or 
+                not place.get('division_name') or 
+                not place.get('polling_place_name') or 
+                place.get('polling_place_id', 0) <= 0 or 
+                place.get('division_id', 0) <= 0):
+                invalid_count += 1
+                continue
+                
             place['status'] = 'Current'
             place['wheelchair_access'] = ''
-            
+            valid_polling_places.append(place)
+        
+        logger.info(f"Filtered out {invalid_count} invalid records, proceeding with {len(valid_polling_places)} valid records")
+        
+        for place in valid_polling_places:
             cursor.execute('''
             INSERT INTO polling_places
             (state, division_id, division_name, polling_place_id, polling_place_name, 
@@ -796,9 +892,29 @@ def extract_and_save_polling_places() -> bool:
             ))
         
         conn.commit()
+        
+        cursor.execute("""
+        SELECT COUNT(*) FROM polling_places 
+        WHERE state = '' OR division_id = 0 OR polling_place_id = 0 OR 
+              division_name = '' OR polling_place_name = ''
+        """)
+        empty_count = cursor.fetchone()[0]
+        
+        if empty_count > 0:
+            logger.warning(f"Found {empty_count} empty records after insertion, removing them")
+            cursor.execute("""
+            DELETE FROM polling_places 
+            WHERE state = '' OR division_id = 0 OR polling_place_id = 0 OR 
+                  division_name = '' OR polling_place_name = ''
+            """)
+            conn.commit()
+        
+        cursor.execute("SELECT COUNT(*) FROM polling_places")
+        final_count = cursor.fetchone()[0]
+        logger.info(f"Successfully saved {final_count} polling places to database (from 2022 data)")
+        
         conn.close()
-        logger.info(f"Successfully saved {len(polling_places)} polling places to database (from 2022 data)")
-        return True
+        return final_count > 0
     except Exception as e:
         logger.error(f"Error extracting and saving polling places: {e}")
         import traceback
@@ -895,17 +1011,71 @@ def process_and_load_polling_places() -> bool:
         ensure_data_dir()
         create_polling_places_table()
         
+        # First, completely clear the polling_places table
+        db_path_str = str(DB_PATH)
+        conn = sqlite3.connect(db_path_str)
+        cursor = conn.cursor()
+        
+        logger.info("Completely clearing polling_places table before loading new data")
+        cursor.execute("DELETE FROM polling_places")
+        conn.commit()
+        
+        cursor.execute("SELECT COUNT(*) FROM polling_places")
+        count = cursor.fetchone()[0]
+        logger.info(f"Polling places table has {count} records after clearing")
+        
+        conn.close()
+        
         download_success = download_polling_places_data()
+        load_success = False
         
         if download_success:
             polling_places_path = DATA_DIR / "polling_places" / "polling-places-2025.csv"
             if polling_places_path.exists():
                 polling_places = process_polling_places_file(polling_places_path)
                 if polling_places:
-                    return save_polling_places_to_database(polling_places)
+                    logger.info(f"Processed {len(polling_places)} valid polling places from 2025 data")
+                    load_success = save_polling_places_to_database(polling_places)
+                    if not load_success:
+                        logger.error("Failed to save 2025 polling places to database")
         
-        logger.info("Falling back to extracting polling places from 2022 booth results")
-        return extract_and_save_polling_places()
+        if not load_success:
+            logger.info("Falling back to extracting polling places from 2022 booth results")
+            load_success = extract_and_save_polling_places()
+        
+        conn = sqlite3.connect(db_path_str)
+        cursor = conn.cursor()
+        
+        logger.info("Performing final cleanup to remove any empty records")
+        cursor.execute("""
+        DELETE FROM polling_places 
+        WHERE state = '' OR division_id = 0 OR polling_place_id = 0 OR 
+              division_name = '' OR polling_place_name = ''
+        """)
+        removed = cursor.rowcount
+        logger.info(f"Removed {removed} empty records during final cleanup")
+        
+        cursor.execute("""
+        SELECT COUNT(*) FROM polling_places 
+        WHERE state = '' OR division_id = 0 OR polling_place_id = 0 OR 
+              division_name = '' OR polling_place_name = ''
+        """)
+        empty_count = cursor.fetchone()[0]
+        logger.info(f"Verified {empty_count} empty records remain after cleanup")
+        
+        cursor.execute("SELECT COUNT(*) FROM polling_places")
+        total_count = cursor.fetchone()[0]
+        logger.info(f"Total of {total_count} polling places in database after loading")
+        
+        cursor.execute("SELECT * FROM polling_places LIMIT 3")
+        sample_records = cursor.fetchall()
+        for record in sample_records:
+            logger.info(f"Sample record: {record}")
+        
+        conn.commit()
+        conn.close()
+        
+        return load_success and empty_count == 0
     except Exception as e:
         logger.error(f"Error processing and loading polling places: {e}")
         import traceback
