@@ -497,6 +497,18 @@ def create_polling_places_table() -> None:
         conn = sqlite3.connect(db_path_str)
         cursor = conn.cursor()
         
+        cursor.execute("PRAGMA table_info(polling_places)")
+        columns = {column[1] for column in cursor.fetchall()}
+        
+        required_columns = {'status', 'wheelchair_access', 'address', 'latitude', 'longitude'}
+        missing_columns = required_columns - columns
+        
+        if columns and missing_columns:
+            logger.info(f"Polling places table exists but is missing columns: {missing_columns}")
+            logger.info("Dropping and recreating polling_places table with correct schema")
+            cursor.execute("DROP TABLE polling_places")
+            conn.commit()
+        
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS polling_places (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -519,6 +531,8 @@ def create_polling_places_table() -> None:
         logger.info("Successfully created polling_places table")
     except Exception as e:
         logger.error(f"Error creating polling_places table: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
 
 def download_polling_places_data() -> bool:
     """
