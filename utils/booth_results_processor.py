@@ -416,6 +416,78 @@ def calculate_swing(current_result: Dict[str, Any], historical_result: Dict[str,
         logger.error(f"Error calculating swing: {e}")
         return 0.0
 
+def get_polling_place_by_id(polling_place_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Get polling place by ID from the polling_places table.
+    
+    Args:
+        polling_place_id: ID of the polling place
+        
+    Returns:
+        Polling place dictionary or None if not found
+    """
+    try:
+        logger.info(f"Getting polling place by ID: {polling_place_id}")
+        db_path_str = str(DB_PATH)
+        conn = sqlite3.connect(db_path_str)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        SELECT * FROM polling_places 
+        WHERE polling_place_id = ?
+        ''', (polling_place_id,))
+        
+        row = cursor.fetchone()
+        result = dict(row) if row else None
+        
+        conn.close()
+        if result:
+            logger.info(f"Found polling place with ID {polling_place_id}")
+        else:
+            logger.info(f"No polling place found with ID {polling_place_id}")
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error getting polling place by ID {polling_place_id}: {e}")
+        return None
+
+def get_booth_result_by_polling_place_id(polling_place_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Get 2022 booth result by polling place ID.
+    
+    Args:
+        polling_place_id: ID of the polling place
+        
+    Returns:
+        Booth result dictionary or None if not found
+    """
+    try:
+        logger.info(f"Getting 2022 booth result for polling place ID: {polling_place_id}")
+        db_path_str = str(DB_PATH)
+        conn = sqlite3.connect(db_path_str)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        SELECT * FROM booth_results_2022 
+        WHERE polling_place_id = ?
+        ''', (polling_place_id,))
+        
+        row = cursor.fetchone()
+        result = dict(row) if row else None
+        
+        conn.close()
+        if result:
+            logger.info(f"Found 2022 booth result for polling place ID {polling_place_id}")
+        else:
+            logger.info(f"No 2022 booth result found for polling place ID {polling_place_id}")
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error getting 2022 booth result for polling place ID {polling_place_id}: {e}")
+        return None
+
 def create_polling_places_table() -> None:
     """Create the polling_places table in the SQLite database if it doesn't exist."""
     try:
@@ -436,6 +508,8 @@ def create_polling_places_table() -> None:
             address TEXT,
             latitude REAL,
             longitude REAL,
+            status TEXT,
+            wheelchair_access TEXT,
             data JSON
         )
         ''')
@@ -459,7 +533,8 @@ def download_polling_places_data() -> bool:
         polling_places_dir = DATA_DIR / "polling_places"
         polling_places_dir.mkdir(exist_ok=True)
         
-        polling_places_url = "https://www.aec.gov.au/election/files/data/polling-places-2025.csv"
+        # This is the actual URL from the AEC website for the 2025 federal election
+        polling_places_url = "https://www.aec.gov.au/About_AEC/cea-notices/files/prdelms-gaz-statics.csv"
         polling_places_path = polling_places_dir / "polling-places-2025.csv"
         
         if polling_places_path.exists():
@@ -477,10 +552,19 @@ def download_polling_places_data() -> bool:
             logger.info(f"Successfully downloaded polling places data to {polling_places_path}")
             return True
         except requests.exceptions.RequestException as e:
-            logger.warning(f"Could not download polling places data: {e}")
-            logger.warning("This is expected if the 2025 polling places data is not yet available")
-            logger.warning("Falling back to extracting polling places from 2022 booth results")
-            return False
+            logger.warning(f"Could not download polling places data from AEC website: {e}")
+            logger.warning("Checking for local copy of the polling places data...")
+            
+            local_copy = Path("~/browser_downloads/prdelms.gaz.statics.250428.09.00.02.csv").expanduser()
+            if local_copy.exists():
+                logger.info(f"Found local copy of polling places data at {local_copy}")
+                import shutil
+                shutil.copy(local_copy, polling_places_path)
+                logger.info(f"Copied local polling places data to {polling_places_path}")
+                return True
+            else:
+                logger.warning("No local copy found. Falling back to extracting polling places from 2022 booth results")
+                return False
     except Exception as e:
         logger.error(f"Error downloading polling places data: {e}")
         import traceback
@@ -506,29 +590,75 @@ def process_polling_places_file(file_path: Path) -> List[Dict[str, Any]]:
             
         polling_places = []
         with open(file_path, 'r', encoding='utf-8-sig') as f:
-            header = f.readline().strip().split(',')
+            import csv
+            reader = csv.DictReader(f)
             
-            for line in f:
+            for row in reader:
                 try:
-                    values = line.strip().split(',')
-                    if len(values) < 5:
-                        logger.warning(f"Skipping invalid line: {line}")
+                    if row.get('Status') == 'Abolition':
                         continue
                         
+                    division_name = row.get('DivName', '').strip()
+                    
+                    polling_place_name = row.get('PPName', '').strip()
+                    if ' (' in polling_place_name:
+                        polling_place_name = polling_place_name.split(' (')[0].strip()
+                    
+                    address_parts = []
+                    if row.get('PremisesName'):
+                        address_parts.append(row.get('PremisesName'))
+                    if row.get('Address1'):
+                        address_parts.append(row.get('Address1'))
+                    if row.get('Address2') and row.get('Address2').strip():
+                        address_parts.append(row.get('Address2'))
+                    if row.get('Address3') and row.get('Address3').strip():
+                        address_parts.append(row.get('Address3'))
+                    if row.get('Locality'):
+                        address_parts.append(row.get('Locality'))
+                    if row.get('AddrStateAb'):
+                        address_parts.append(row.get('AddrStateAb'))
+                    if row.get('Postcode'):
+                        address_parts.append(row.get('Postcode'))
+                    
+                    address = ", ".join([part for part in address_parts if part and part.strip()])
+                    
+                    # Get polling place ID, defaulting to 0 if not available
+                    try:
+                        polling_place_id = int(row.get('PPId', 0))
+                    except (ValueError, TypeError):
+                        polling_place_id = 0
+                        
+                    try:
+                        division_id = int(row.get('DivId', 0))
+                    except (ValueError, TypeError):
+                        division_id = 0
+                        
+                    try:
+                        latitude = float(row.get('Lat', 0)) if row.get('Lat') and row.get('Lat').strip() else None
+                    except (ValueError, TypeError):
+                        latitude = None
+                        
+                    try:
+                        longitude = float(row.get('Long', 0)) if row.get('Long') and row.get('Long').strip() else None
+                    except (ValueError, TypeError):
+                        longitude = None
+                    
                     place = {
-                        'state': values[0],
-                        'division_id': int(values[1]),
-                        'division_name': values[2],
-                        'polling_place_id': int(values[3]),
-                        'polling_place_name': values[4],
-                        'address': values[5] if len(values) > 5 else None,
-                        'latitude': float(values[6]) if len(values) > 6 and values[6] else None,
-                        'longitude': float(values[7]) if len(values) > 7 and values[7] else None
+                        'state': row.get('StateAb', ''),
+                        'division_id': division_id,
+                        'division_name': division_name,
+                        'polling_place_id': polling_place_id,
+                        'polling_place_name': polling_place_name,
+                        'address': address,
+                        'latitude': latitude,
+                        'longitude': longitude,
+                        'status': row.get('Status', ''),
+                        'wheelchair_access': row.get('WheelchairAccess', '')
                     }
                     
                     polling_places.append(place)
                 except Exception as e:
-                    logger.warning(f"Error processing line: {line}, error: {e}")
+                    logger.warning(f"Error processing row: {row}, error: {e}")
                     continue
                     
         logger.info(f"Processed {len(polling_places)} polling places from file")
@@ -564,8 +694,9 @@ def save_polling_places_to_database(polling_places: List[Dict[str, Any]]) -> boo
         for place in polling_places:
             cursor.execute('''
             INSERT INTO polling_places
-            (state, division_id, division_name, polling_place_id, polling_place_name, address, latitude, longitude, data)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (state, division_id, division_name, polling_place_id, polling_place_name, 
+             address, latitude, longitude, status, wheelchair_access, data)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 place['state'],
                 place['division_id'],
@@ -575,6 +706,8 @@ def save_polling_places_to_database(polling_places: List[Dict[str, Any]]) -> boo
                 place.get('address'),
                 place.get('latitude'),
                 place.get('longitude'),
+                place.get('status'),
+                place.get('wheelchair_access'),
                 json.dumps(place)
             ))
         
@@ -621,16 +754,22 @@ def extract_and_save_polling_places() -> bool:
         logger.info(f"Found {len(polling_places)} unique polling places from 2022 data")
         
         for place in polling_places:
+            place['status'] = 'Current'
+            place['wheelchair_access'] = ''
+            
             cursor.execute('''
             INSERT INTO polling_places
-            (state, division_id, division_name, polling_place_id, polling_place_name, data)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (state, division_id, division_name, polling_place_id, polling_place_name, 
+             status, wheelchair_access, data)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 place['state'],
                 place['division_id'],
                 place['division_name'],
                 place['polling_place_id'],
                 place['polling_place_name'],
+                place['status'],
+                place['wheelchair_access'],
                 json.dumps(place)
             ))
         
@@ -644,12 +783,13 @@ def extract_and_save_polling_places() -> bool:
         logger.error(f"Traceback: {traceback.format_exc()}")
         return False
 
-def get_polling_places_for_division(division_name: str) -> List[Dict[str, Any]]:
+def get_polling_places_for_division(division_name: str, include_comparison: bool = False) -> List[Dict[str, Any]]:
     """
     Get polling places for a specific division from the database.
     
     Args:
         division_name: Name of the division/electorate
+        include_comparison: Whether to include comparison with 2022 results
         
     Returns:
         List of polling place dictionaries
@@ -669,6 +809,44 @@ def get_polling_places_for_division(division_name: str) -> List[Dict[str, Any]]:
         
         rows = cursor.fetchall()
         polling_places = [dict(row) for row in rows]
+        
+        # If comparison is requested, add 2022 booth results for each polling place
+        if include_comparison:
+            for place in polling_places:
+                polling_place_id = place.get('polling_place_id')
+                if polling_place_id:
+                    # Get 2022 booth result for this polling place ID
+                    booth_result = get_booth_result_by_polling_place_id(polling_place_id)
+                    if booth_result:
+                        place['booth_result_2022'] = booth_result
+                        place['has_2022_comparison'] = True
+                        place['comparison_type'] = 'direct'
+                        place['original_division_2022'] = booth_result.get('division_name')
+                    else:
+                        if division_name == 'Warringah':
+                            cursor.execute('''
+                            SELECT * FROM booth_results_2022 
+                            WHERE polling_place_id = ? AND division_name = 'North Sydney'
+                            ''', (polling_place_id,))
+                            
+                            north_sydney_row = cursor.fetchone()
+                            if north_sydney_row:
+                                north_sydney_result = dict(north_sydney_row)
+                                place['booth_result_2022'] = north_sydney_result
+                                place['has_2022_comparison'] = True
+                                place['comparison_type'] = 'redistribution'
+                                place['original_division_2022'] = 'North Sydney'
+                                
+                                # Get TCP candidates for North Sydney
+                                tcp_candidates = get_tcp_candidates_for_division('North Sydney')
+                                if tcp_candidates:
+                                    place['tcp_candidates_2022'] = tcp_candidates
+                            else:
+                                place['has_2022_comparison'] = False
+                        else:
+                            place['has_2022_comparison'] = False
+                else:
+                    place['has_2022_comparison'] = False
         
         conn.close()
         logger.info(f"Found {len(polling_places)} polling places for division {division_name}")

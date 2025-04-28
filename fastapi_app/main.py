@@ -672,9 +672,13 @@ async def load_reference_data():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/admin/polling-places/{division}")
-async def get_polling_places(division: str):
+async def get_polling_places(division: str, include_comparison: bool = False):
     """
     Get polling places for a specific division
+    
+    Args:
+        division: Name of the division/electorate
+        include_comparison: Whether to include comparison with 2022 results
     """
     try:
         import sys
@@ -687,7 +691,7 @@ async def get_polling_places(division: str):
             sys.path.append(parent_dir)
             
         from utils.booth_results_processor import get_polling_places_for_division
-        polling_places = get_polling_places_for_division(division)
+        polling_places = get_polling_places_for_division(division, include_comparison)
         return {"status": "success", "polling_places": polling_places}
     except Exception as e:
         logger.error(f"Error getting polling places for division {division}: {e}")
