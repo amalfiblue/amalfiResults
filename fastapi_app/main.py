@@ -1030,7 +1030,6 @@ async def api_results_count(electorate: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/tcp-candidates/{electorate}")
-@app.get("/api/tcp-candidates/{electorate}")
 async def api_tcp_candidates(electorate: str):
     """
     Get TCP candidates for a specific electorate
@@ -1057,7 +1056,6 @@ async def api_tcp_candidates(electorate: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/tcp-candidates/{electorate}")
-@app.post("/api/tcp-candidates/{electorate}")
 async def api_update_tcp_candidates(electorate: str, request: Request):
     """
     Update TCP candidates for a specific electorate
@@ -1124,7 +1122,6 @@ async def api_electorates():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/candidates")
-@app.get("/api/candidates")
 async def api_candidates(electorate: str = None, house: str = "house"):
     """
     Get all candidates or filter by electorate and house
@@ -1198,7 +1195,6 @@ async def api_candidates_by_electorate(electorate: str, candidate_type: str = "h
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/dashboard/{electorate}")
-@app.get("/api/dashboard/{electorate}")
 async def api_dashboard(electorate: str):
     """
     Get all dashboard data for a specific electorate
