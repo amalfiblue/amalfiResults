@@ -636,21 +636,23 @@ async def load_reference_data():
         try:
             try:
                 from utils.aec_data_downloader import download_and_process_aec_data
-                from utils.booth_results_processor import process_and_load_booth_results
+                from utils.booth_results_processor import process_and_load_booth_results, process_and_load_polling_places
             except ImportError:
                 sys.path.insert(0, os.path.join(parent_dir, "utils"))
                 from aec_data_downloader import download_and_process_aec_data
-                from booth_results_processor import process_and_load_booth_results
+                from booth_results_processor import process_and_load_booth_results, process_and_load_polling_places
             
             candidates_result = download_and_process_aec_data()
             booth_results = process_and_load_booth_results()
+            polling_places_result = process_and_load_polling_places()
             
             return {
                 "status": "success", 
                 "message": "Reference data loaded successfully",
                 "details": {
                     "candidates_loaded": candidates_result,
-                    "booth_results_loaded": booth_results
+                    "booth_results_loaded": booth_results,
+                    "polling_places_loaded": polling_places_result
                 }
             }
         except ImportError as ie:

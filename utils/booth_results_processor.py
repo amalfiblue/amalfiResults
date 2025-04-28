@@ -446,15 +446,158 @@ def create_polling_places_table() -> None:
     except Exception as e:
         logger.error(f"Error creating polling_places table: {e}")
 
-def extract_and_save_polling_places() -> bool:
+def download_polling_places_data() -> bool:
     """
-    Extract polling place data from booth_results_2022 and save to polling_places table.
+    Download polling places data from AEC for the current election.
     
     Returns:
         bool: True if successful, False otherwise
     """
     try:
-        logger.info("Extracting polling places from booth_results_2022")
+        logger.info("Attempting to download polling places data from AEC")
+        
+        polling_places_dir = DATA_DIR / "polling_places"
+        polling_places_dir.mkdir(exist_ok=True)
+        
+        polling_places_url = "https://www.aec.gov.au/election/files/data/polling-places-2025.csv"
+        polling_places_path = polling_places_dir / "polling-places-2025.csv"
+        
+        if polling_places_path.exists():
+            logger.info(f"Polling places file already exists at {polling_places_path}")
+            return True
+            
+        try:
+            logger.info(f"Downloading polling places data from {polling_places_url}")
+            response = requests.get(polling_places_url, timeout=30)
+            response.raise_for_status()
+            
+            with open(polling_places_path, 'wb') as f:
+                f.write(response.content)
+                
+            logger.info(f"Successfully downloaded polling places data to {polling_places_path}")
+            return True
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Could not download polling places data: {e}")
+            logger.warning("This is expected if the 2025 polling places data is not yet available")
+            logger.warning("Falling back to extracting polling places from 2022 booth results")
+            return False
+    except Exception as e:
+        logger.error(f"Error downloading polling places data: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return False
+
+def process_polling_places_file(file_path: Path) -> List[Dict[str, Any]]:
+    """
+    Process the polling places CSV file into structured data.
+    
+    Args:
+        file_path: Path to the polling places CSV file
+        
+    Returns:
+        List of polling place dictionaries
+    """
+    try:
+        logger.info(f"Processing polling places file: {file_path}")
+        
+        if not file_path.exists():
+            logger.error(f"Polling places file not found at {file_path}")
+            return []
+            
+        polling_places = []
+        with open(file_path, 'r', encoding='utf-8-sig') as f:
+            header = f.readline().strip().split(',')
+            
+            for line in f:
+                try:
+                    values = line.strip().split(',')
+                    if len(values) < 5:
+                        logger.warning(f"Skipping invalid line: {line}")
+                        continue
+                        
+                    place = {
+                        'state': values[0],
+                        'division_id': int(values[1]),
+                        'division_name': values[2],
+                        'polling_place_id': int(values[3]),
+                        'polling_place_name': values[4],
+                        'address': values[5] if len(values) > 5 else None,
+                        'latitude': float(values[6]) if len(values) > 6 and values[6] else None,
+                        'longitude': float(values[7]) if len(values) > 7 and values[7] else None
+                    }
+                    
+                    polling_places.append(place)
+                except Exception as e:
+                    logger.warning(f"Error processing line: {line}, error: {e}")
+                    continue
+                    
+        logger.info(f"Processed {len(polling_places)} polling places from file")
+        return polling_places
+    except Exception as e:
+        logger.error(f"Error processing polling places file: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return []
+
+def save_polling_places_to_database(polling_places: List[Dict[str, Any]]) -> bool:
+    """
+    Save polling places to the database.
+    
+    Args:
+        polling_places: List of polling place dictionaries
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        if not polling_places:
+            logger.warning("No polling places to save to database")
+            return False
+            
+        logger.info(f"Saving {len(polling_places)} polling places to database")
+        db_path_str = str(DB_PATH)
+        conn = sqlite3.connect(db_path_str)
+        cursor = conn.cursor()
+        
+        cursor.execute("DELETE FROM polling_places")
+        
+        for place in polling_places:
+            cursor.execute('''
+            INSERT INTO polling_places
+            (state, division_id, division_name, polling_place_id, polling_place_name, address, latitude, longitude, data)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                place['state'],
+                place['division_id'],
+                place['division_name'],
+                place['polling_place_id'],
+                place['polling_place_name'],
+                place.get('address'),
+                place.get('latitude'),
+                place.get('longitude'),
+                json.dumps(place)
+            ))
+        
+        conn.commit()
+        conn.close()
+        logger.info(f"Successfully saved {len(polling_places)} polling places to database")
+        return True
+    except Exception as e:
+        logger.error(f"Error saving polling places to database: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return False
+
+def extract_and_save_polling_places() -> bool:
+    """
+    Extract polling place data from booth_results_2022 and save to polling_places table.
+    This is a fallback method when current polling places data is not available.
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        logger.info("Extracting polling places from booth_results_2022 as fallback")
         db_path_str = str(DB_PATH)
         conn = sqlite3.connect(db_path_str)
         conn.row_factory = sqlite3.Row
@@ -475,7 +618,7 @@ def extract_and_save_polling_places() -> bool:
         ''')
         
         polling_places = [dict(row) for row in cursor.fetchall()]
-        logger.info(f"Found {len(polling_places)} unique polling places")
+        logger.info(f"Found {len(polling_places)} unique polling places from 2022 data")
         
         for place in polling_places:
             cursor.execute('''
@@ -493,7 +636,7 @@ def extract_and_save_polling_places() -> bool:
         
         conn.commit()
         conn.close()
-        logger.info(f"Successfully saved {len(polling_places)} polling places to database")
+        logger.info(f"Successfully saved {len(polling_places)} polling places to database (from 2022 data)")
         return True
     except Exception as e:
         logger.error(f"Error extracting and saving polling places: {e}")
@@ -538,6 +681,37 @@ def get_polling_places_for_division(division_name: str) -> List[Dict[str, Any]]:
         except Exception as fallback_e:
             logger.error(f"Error in fallback: {fallback_e}")
             return []
+
+def process_and_load_polling_places() -> bool:
+    """
+    Process and load polling places data.
+    Attempts to download current polling places data from AEC,
+    falling back to extracting from 2022 booth results if not available.
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        ensure_data_dir()
+        create_polling_places_table()
+        
+        download_success = download_polling_places_data()
+        
+        if download_success:
+            polling_places_path = DATA_DIR / "polling_places" / "polling-places-2025.csv"
+            if polling_places_path.exists():
+                polling_places = process_polling_places_file(polling_places_path)
+                if polling_places:
+                    return save_polling_places_to_database(polling_places)
+        
+        logger.info("Falling back to extracting polling places from 2022 booth results")
+        return extract_and_save_polling_places()
+    except Exception as e:
+        logger.error(f"Error processing and loading polling places: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return False
+
 
 def process_and_load_booth_results() -> bool:
     """
