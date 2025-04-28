@@ -555,16 +555,24 @@ def download_polling_places_data() -> bool:
             logger.warning(f"Could not download polling places data from AEC website: {e}")
             logger.warning("Checking for local copy of the polling places data...")
             
-            local_copy = Path("~/browser_downloads/prdelms.gaz.statics.250428.09.00.02.csv").expanduser()
-            if local_copy.exists():
-                logger.info(f"Found local copy of polling places data at {local_copy}")
-                import shutil
-                shutil.copy(local_copy, polling_places_path)
-                logger.info(f"Copied local polling places data to {polling_places_path}")
-                return True
-            else:
-                logger.warning("No local copy found. Falling back to extracting polling places from 2022 booth results")
-                return False
+            possible_paths = [
+                Path("~/browser_downloads/prdelms.gaz.statics.250428.09.00.02.csv").expanduser(),
+                Path("/home/ubuntu/browser_downloads/prdelms.gaz.statics.250428.09.00.02.csv"),
+                Path("/tmp/prdelms.gaz.statics.250428.09.00.02.csv")
+            ]
+            
+            for local_copy in possible_paths:
+                if local_copy.exists():
+                    logger.info(f"Found local copy of polling places data at {local_copy}")
+                    import shutil
+                    shutil.copy(local_copy, polling_places_path)
+                    logger.info(f"Copied local polling places data to {polling_places_path}")
+                    return True
+            
+            logger.info(f"Checked these paths for local polling places data: {possible_paths}")
+            logger.info(f"None of the local paths exist")
+            logger.warning("No local copy found. Falling back to extracting polling places from 2022 booth results")
+            return False
     except Exception as e:
         logger.error(f"Error downloading polling places data: {e}")
         import traceback
@@ -925,7 +933,8 @@ def process_and_load_booth_results() -> bool:
         logger.info(f"Saving {len(results)} booth results to database")
         booth_success = save_booth_results_to_database(results)
         
-        polling_places_success = extract_and_save_polling_places()
+        logger.info("Loading 2025 polling places data")
+        polling_places_success = process_and_load_polling_places()
         
         success = booth_success and polling_places_success
         
