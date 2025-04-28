@@ -549,9 +549,8 @@ def admin_polling_places(division=None):
     
     polling_places = []
     if division:
-        from utils.booth_results_processor import get_booth_results_for_division
-        booth_results = get_booth_results_for_division(division)
-        polling_places = booth_results
+        from utils.booth_results_processor import get_polling_places_for_division
+        polling_places = get_polling_places_for_division(division)
         app.logger.info(f"Retrieved {len(polling_places)} polling places for division {division}")
         if polling_places:
             app.logger.info(f"First polling place: {polling_places[0]}")
