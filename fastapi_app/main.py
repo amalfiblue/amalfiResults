@@ -176,7 +176,7 @@ def extract_tally_sheet_data(extracted_rows: List[List[str]]) -> Dict[str, Any]:
                 for nearby_row in extracted_rows[:10]:
                     nearby_text = " ".join(nearby_row).strip().upper()
                     if "WARRINGAH" in nearby_text:
-                        result["electorate"] = "WARRINGAH"
+                        result["electorate"] = "Warringah"
                         logger.info(f"Found electorate from nearby text: {result['electorate']}")
                         break
             break
@@ -232,7 +232,7 @@ def extract_tally_sheet_data(extracted_rows: List[List[str]]) -> Dict[str, Any]:
                     logger.info(f"Found TCP candidates: {tcp_candidates}")
                     break
         
-        if not tcp_candidates and result["electorate"] == "WARRINGAH":
+        if not tcp_candidates and result["electorate"] == "Warringah":
             tcp_candidates = ["STEGGALL", "ROGERS"]
             logger.info(f"Setting default TCP candidates for Warringah: {tcp_candidates}")
         
@@ -353,8 +353,8 @@ def extract_tally_sheet_data(extracted_rows: List[List[str]]) -> Dict[str, Any]:
         result["totals"]["total"] = result["totals"]["formal"] + result["totals"]["informal"]
         logger.info(f"Calculated total votes: {result['totals']['total']}")
     
-    result["electorate"] = "WARRINGAH"
-    logger.info("Setting electorate to WARRINGAH")
+    result["electorate"] = "Warringah"
+    logger.info("Setting electorate to Warringah")
     
     if not result["booth_name"]:
         result["booth_name"] = "Unknown Booth"
@@ -1088,7 +1088,7 @@ async def api_electorates():
         # Return only Warringah electorate
         return {
             "status": "success",
-            "electorates": ["WARRINGAH"]
+            "electorates": ["Warringah"]
         }
     except Exception as e:
         logger.error(f"Error getting electorates: {e}")
@@ -1110,7 +1110,7 @@ async def api_candidates():
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        cursor.execute("SELECT * FROM candidates WHERE electorate = 'WARRINGAH' ORDER BY candidate_name")
+        cursor.execute("SELECT * FROM candidates WHERE electorate = 'Warringah' ORDER BY candidate_name")
         columns = [col[0] for col in cursor.description]
         candidates = [dict(zip(columns, row)) for row in cursor.fetchall()]
         conn.close()
