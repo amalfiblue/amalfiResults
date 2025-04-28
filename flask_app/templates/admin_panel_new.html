@@ -162,7 +162,8 @@
                     const details = data.details || {};
                     const candidatesLoaded = details.candidates_loaded || 'Unknown';
                     const boothResults = details.booth_results_loaded || 'Unknown';
-                    alert(`Reference data loaded successfully! Candidates: ${candidatesLoaded}, Booth results: ${boothResults}`);
+                    const pollingPlacesLoaded = details.polling_places_loaded || 'Unknown';
+                    alert(`Reference data loaded successfully! Candidates: ${candidatesLoaded}, Booth results: ${boothResults}, Polling places: ${pollingPlacesLoaded}`);
                 } else {
                     const errorDetail = data.detail || 'Unknown error';
                     alert(`Failed to load reference data: ${errorDetail}`);
