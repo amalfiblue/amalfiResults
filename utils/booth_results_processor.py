@@ -416,6 +416,78 @@ def calculate_swing(current_result: Dict[str, Any], historical_result: Dict[str,
         logger.error(f"Error calculating swing: {e}")
         return 0.0
 
+def get_polling_place_by_id(polling_place_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Get polling place by ID from the polling_places table.
+    
+    Args:
+        polling_place_id: ID of the polling place
+        
+    Returns:
+        Polling place dictionary or None if not found
+    """
+    try:
+        logger.info(f"Getting polling place by ID: {polling_place_id}")
+        db_path_str = str(DB_PATH)
+        conn = sqlite3.connect(db_path_str)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        SELECT * FROM polling_places 
+        WHERE polling_place_id = ?
+        ''', (polling_place_id,))
+        
+        row = cursor.fetchone()
+        result = dict(row) if row else None
+        
+        conn.close()
+        if result:
+            logger.info(f"Found polling place with ID {polling_place_id}")
+        else:
+            logger.info(f"No polling place found with ID {polling_place_id}")
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error getting polling place by ID {polling_place_id}: {e}")
+        return None
+
+def get_booth_result_by_polling_place_id(polling_place_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Get 2022 booth result by polling place ID.
+    
+    Args:
+        polling_place_id: ID of the polling place
+        
+    Returns:
+        Booth result dictionary or None if not found
+    """
+    try:
+        logger.info(f"Getting 2022 booth result for polling place ID: {polling_place_id}")
+        db_path_str = str(DB_PATH)
+        conn = sqlite3.connect(db_path_str)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        SELECT * FROM booth_results_2022 
+        WHERE polling_place_id = ?
+        ''', (polling_place_id,))
+        
+        row = cursor.fetchone()
+        result = dict(row) if row else None
+        
+        conn.close()
+        if result:
+            logger.info(f"Found 2022 booth result for polling place ID {polling_place_id}")
+        else:
+            logger.info(f"No 2022 booth result found for polling place ID {polling_place_id}")
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error getting 2022 booth result for polling place ID {polling_place_id}: {e}")
+        return None
+
 def create_polling_places_table() -> None:
     """Create the polling_places table in the SQLite database if it doesn't exist."""
     try:
@@ -711,12 +783,13 @@ def extract_and_save_polling_places() -> bool:
         logger.error(f"Traceback: {traceback.format_exc()}")
         return False
 
-def get_polling_places_for_division(division_name: str) -> List[Dict[str, Any]]:
+def get_polling_places_for_division(division_name: str, include_comparison: bool = False) -> List[Dict[str, Any]]:
     """
     Get polling places for a specific division from the database.
     
     Args:
         division_name: Name of the division/electorate
+        include_comparison: Whether to include comparison with 2022 results
         
     Returns:
         List of polling place dictionaries
@@ -736,6 +809,44 @@ def get_polling_places_for_division(division_name: str) -> List[Dict[str, Any]]:
         
         rows = cursor.fetchall()
         polling_places = [dict(row) for row in rows]
+        
+        # If comparison is requested, add 2022 booth results for each polling place
+        if include_comparison:
+            for place in polling_places:
+                polling_place_id = place.get('polling_place_id')
+                if polling_place_id:
+                    # Get 2022 booth result for this polling place ID
+                    booth_result = get_booth_result_by_polling_place_id(polling_place_id)
+                    if booth_result:
+                        place['booth_result_2022'] = booth_result
+                        place['has_2022_comparison'] = True
+                        place['comparison_type'] = 'direct'
+                        place['original_division_2022'] = booth_result.get('division_name')
+                    else:
+                        if division_name == 'Warringah':
+                            cursor.execute('''
+                            SELECT * FROM booth_results_2022 
+                            WHERE polling_place_id = ? AND division_name = 'North Sydney'
+                            ''', (polling_place_id,))
+                            
+                            north_sydney_row = cursor.fetchone()
+                            if north_sydney_row:
+                                north_sydney_result = dict(north_sydney_row)
+                                place['booth_result_2022'] = north_sydney_result
+                                place['has_2022_comparison'] = True
+                                place['comparison_type'] = 'redistribution'
+                                place['original_division_2022'] = 'North Sydney'
+                                
+                                # Get TCP candidates for North Sydney
+                                tcp_candidates = get_tcp_candidates_for_division('North Sydney')
+                                if tcp_candidates:
+                                    place['tcp_candidates_2022'] = tcp_candidates
+                            else:
+                                place['has_2022_comparison'] = False
+                        else:
+                            place['has_2022_comparison'] = False
+                else:
+                    place['has_2022_comparison'] = False
         
         conn.close()
         logger.info(f"Found {len(polling_places)} polling places for division {division_name}")
