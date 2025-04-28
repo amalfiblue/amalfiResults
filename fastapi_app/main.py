@@ -45,6 +45,13 @@ data_dir = Path(data_dir_path)
 data_dir.mkdir(parents=True, exist_ok=True)
 os.chmod(data_dir, 0o777)  # Full permissions for the data directory
 
+import sys
+sys.path.append(str(Path(__file__).parent.parent))
+logger.info(f"Adding parent directory to Python path: {str(Path(__file__).parent.parent)}")
+from utils.booth_results_processor import process_and_load_booth_results
+
+process_and_load_booth_results()
+
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
