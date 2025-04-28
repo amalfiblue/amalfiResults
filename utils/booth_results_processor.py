@@ -699,6 +699,11 @@ def process_polling_places_file(file_path: Path) -> List[Dict[str, Any]]:
                         skipped_count += 1
                         continue
                     
+                    if ('North Sydney' in polling_place_name or 
+                        'Cammeray' in polling_place_name or 
+                        'Wollstonecraft' in polling_place_name):
+                        logger.info(f"North Sydney area booth in CSV: {polling_place_id} | {polling_place_name} | Division: {division_name} | Row data: {row}")
+                    
                     polling_places.append(place)
                     valid_count += 1
                     
@@ -1001,8 +1006,8 @@ def get_polling_places_for_division(division_name: str, include_comparison: bool
 def process_and_load_polling_places() -> bool:
     """
     Process and load polling places data.
-    Attempts to download current polling places data from AEC,
-    falling back to extracting from 2022 booth results if not available.
+    Loads ONLY 2025 polling places data from AEC.
+    NO fallback to 2022 data.
     
     Returns:
         bool: True if successful, False otherwise
@@ -1039,9 +1044,6 @@ def process_and_load_polling_places() -> bool:
                     if not load_success:
                         logger.error("Failed to save 2025 polling places to database")
         
-        if not load_success:
-            logger.info("Falling back to extracting polling places from 2022 booth results")
-            load_success = extract_and_save_polling_places()
         
         conn = sqlite3.connect(db_path_str)
         cursor = conn.cursor()
@@ -1066,6 +1068,18 @@ def process_and_load_polling_places() -> bool:
         cursor.execute("SELECT COUNT(*) FROM polling_places")
         total_count = cursor.fetchone()[0]
         logger.info(f"Total of {total_count} polling places in database after loading")
+        
+        cursor.execute("""
+        SELECT polling_place_id, polling_place_name, division_name 
+        FROM polling_places 
+        WHERE polling_place_name LIKE '%North Sydney%' 
+           OR polling_place_name LIKE '%Cammeray%' 
+           OR polling_place_name LIKE '%Wollstonecraft%'
+        """)
+        north_sydney_booths = cursor.fetchall()
+        logger.info(f"Found {len(north_sydney_booths)} North Sydney area booths:")
+        for booth in north_sydney_booths:
+            logger.info(f"  {booth[0]} | {booth[1]} | {booth[2]}")
         
         cursor.execute("SELECT * FROM polling_places LIMIT 3")
         sample_records = cursor.fetchall()
