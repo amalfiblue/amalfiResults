@@ -1377,7 +1377,6 @@ async def api_dashboard(electorate: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/dashboard/{electorate}/candidate-votes")
-@app.get("/api/dashboard/{electorate}/candidate-votes")
 async def api_candidate_votes(electorate: str):
     """
     Get candidate votes for a specific electorate
