@@ -702,7 +702,7 @@ async def get_polling_places(division: str):
             
         from utils.booth_results_processor import get_polling_places_for_division
         polling_places = get_polling_places_for_division(division)
-        return {"status": "success", "polling_places": polling_places}
+        return {"status": "success", "booth_results": polling_places}
     except Exception as e:
         logger.error(f"Error getting polling places for division {division}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

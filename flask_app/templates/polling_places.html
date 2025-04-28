@@ -141,6 +141,7 @@
         
         if (electorate) {
             loadCurrentResults(electorate, boothFilter);
+            loadPollingPlaces(electorate); // Add this line to load polling places
         }
         
         // Set up form submission handler
@@ -308,6 +309,79 @@
         } else if (currentResultsSection) {
             // Hide the section if no results
             currentResultsSection.style.display = 'none';
+        }
+    }
+    
+    // Function to load polling places from FastAPI
+    function loadPollingPlaces(electorate) {
+        if (!electorate) return;
+        
+        fetch(`/api/booth-results?electorate=${encodeURIComponent(electorate)}`, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log("Received polling places data:", data);
+            if (data.status === 'success' && data.booth_results) {
+                updatePollingPlacesTable(data.booth_results);
+            } else {
+                console.error('Error loading polling places:', data.message || 'Unknown error');
+            }
+        })
+        .catch(error => {
+            console.error('Error loading polling places:', error);
+        });
+    }
+    
+    // Function to update the polling places table
+    function updatePollingPlacesTable(pollingPlaces) {
+        const tableBody = document.querySelector('tbody');
+        if (!tableBody) return;
+        
+        // Clear existing rows
+        tableBody.innerHTML = '';
+        
+        if (pollingPlaces && pollingPlaces.length > 0) {
+            // Add rows for each polling place
+            pollingPlaces.forEach(place => {
+                const row = document.createElement('tr');
+                
+                row.innerHTML = `
+                    <td>${place.division_name || ''}</td>
+                    <td>${place.polling_place_name || ''}</td>
+                    <td>${place.state || ''}</td>
+                    <td>${place.address || ''}</td>
+                    <td>${place.status || ''}</td>
+                    <td>${place.wheelchair_access || ''}</td>
+                    <td>
+                        <a href="/admin/polling-places/${place.division_name}?place=${place.polling_place_id}" class="btn btn-sm btn-primary">
+                            View Details
+                        </a>
+                    </td>
+                `;
+                
+                tableBody.appendChild(row);
+            });
+            
+            // Show the table if there are polling places
+            const noPollingPlacesMessage = document.querySelector('.alert-info');
+            if (noPollingPlacesMessage) {
+                noPollingPlacesMessage.style.display = 'none';
+            }
+        } else {
+            // Show "no polling places found" message
+            const noPollingPlacesMessage = document.querySelector('.alert-info');
+            if (noPollingPlacesMessage) {
+                noPollingPlacesMessage.style.display = 'block';
+            }
         }
     }
 </script>
