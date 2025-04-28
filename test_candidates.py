@@ -8,7 +8,7 @@ try:
     print(f"Number of candidates returned: {len(candidates)}")
     print(f"First few candidates: {json.dumps(candidates[:2], indent=2)}")
     
-    all_warringah = all(c['electorate'] == 'WARRINGAH' for c in candidates)
+    all_warringah = all(c['electorate'] == 'Warringah' for c in candidates)
     print(f"All candidates are for Warringah: {all_warringah}")
 except Exception as e:
     print(f"Error: {e}")

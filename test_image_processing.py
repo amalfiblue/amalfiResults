@@ -23,7 +23,7 @@ try:
                 from PIL import Image, ImageDraw, ImageFont
                 img = Image.new('RGB', (800, 600), color=(255, 255, 255))
                 d = ImageDraw.Draw(img)
-                d.text((10, 10), "WARRINGAH TALLY SHEET", fill=(0, 0, 0))
+                d.text((10, 10), "Warringah TALLY SHEET", fill=(0, 0, 0))
                 d.text((10, 50), "BOOTH NAME: Test Booth", fill=(0, 0, 0))
                 img.save(test_image_path)
                 print(f"Created test image with PIL at {test_image_path}")
@@ -47,7 +47,7 @@ try:
         if result_data.get('status') == 'success' and 'result' in result_data:
             electorate = result_data['result'].get('electorate')
             print(f"\nElectorate detected: {electorate}")
-            print(f"Electorate is WARRINGAH: {electorate == 'WARRINGAH'}")
+            print(f"Electorate is Warringah: {electorate == 'Warringah'}")
     
 except Exception as e:
     print(f"Error: {e}")
