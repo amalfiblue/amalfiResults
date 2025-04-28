@@ -1030,7 +1030,6 @@ async def api_results_count(electorate: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/tcp-candidates/{electorate}")
-@app.get("/api/tcp-candidates/{electorate}")
 async def api_tcp_candidates(electorate: str):
     """
     Get TCP candidates for a specific electorate
@@ -1057,29 +1056,64 @@ async def api_tcp_candidates(electorate: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/tcp-candidates/{electorate}")
-@app.post("/api/tcp-candidates/{electorate}")
 async def api_update_tcp_candidates(electorate: str, request: Request):
     """
     Update TCP candidates for a specific electorate
     """
     try:
         data = await request.json()
+        logger.info(f"Received TCP candidates update request: {data}")
+        
+        # Handle both formats: candidate_ids or candidates
+        candidate_ids = data.get("candidate_ids", [])
         candidates_data = data.get("candidates", [])
         
         db = SessionLocal()
         try:
+            # Delete existing TCP candidates for this electorate
             db.query(TCPCandidate).filter_by(electorate=electorate).delete()
+            logger.info(f"Deleted existing TCP candidates for {electorate}")
             
-            # Add new TCP candidates
-            for candidate in candidates_data:
-                tcp_candidate = TCPCandidate(
-                    electorate=electorate,
-                    candidate_name=candidate.get("candidate_name"),
-                    party=candidate.get("party")
-                )
-                db.add(tcp_candidate)
+            if candidate_ids and not candidates_data:
+                logger.info(f"Looking up candidates by IDs: {candidate_ids}")
+                
+                db_path = SQLALCHEMY_DATABASE_URL.replace('sqlite:///', '')
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                
+                # Get candidate information for each ID
+                for candidate_id in candidate_ids:
+                    cursor.execute("SELECT * FROM candidates WHERE id = ?", (candidate_id,))
+                    candidate_row = cursor.fetchone()
+                    
+                    if candidate_row:
+                        columns = [col[0] for col in cursor.description]
+                        candidate = dict(zip(columns, candidate_row))
+                        
+                        logger.info(f"Found candidate: {candidate}")
+                        
+                        tcp_candidate = TCPCandidate(
+                            electorate=electorate,
+                            candidate_name=candidate.get("candidate_name"),
+                            party=candidate.get("party")
+                        )
+                        db.add(tcp_candidate)
+                        logger.info(f"Added TCP candidate: {candidate.get('candidate_name')}")
+                
+                conn.close()
+            else:
+                # Add new TCP candidates from candidates_data
+                for candidate in candidates_data:
+                    tcp_candidate = TCPCandidate(
+                        electorate=electorate,
+                        candidate_name=candidate.get("candidate_name"),
+                        party=candidate.get("party")
+                    )
+                    db.add(tcp_candidate)
+                    logger.info(f"Added TCP candidate: {candidate.get('candidate_name')}")
             
             db.commit()
+            logger.info(f"Committed TCP candidates for {electorate}")
             
             try:
                 async with httpx.AsyncClient() as client:
@@ -1090,6 +1124,7 @@ async def api_update_tcp_candidates(electorate: str, request: Request):
                             "action": "tcp_update"
                         }
                     )
+                    logger.info(f"Notified Flask app about TCP update for {electorate}")
             except Exception as e:
                 logger.error(f"Failed to notify Flask app: {e}")
             
@@ -1124,7 +1159,6 @@ async def api_electorates():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/candidates")
-@app.get("/api/candidates")
 async def api_candidates(electorate: str = None, house: str = "house"):
     """
     Get all candidates or filter by electorate and house
@@ -1198,7 +1232,6 @@ async def api_candidates_by_electorate(electorate: str, candidate_type: str = "h
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/dashboard/{electorate}")
-@app.get("/api/dashboard/{electorate}")
 async def api_dashboard(electorate: str):
     """
     Get all dashboard data for a specific electorate
