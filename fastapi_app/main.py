@@ -353,9 +353,8 @@ def extract_tally_sheet_data(extracted_rows: List[List[str]]) -> Dict[str, Any]:
         result["totals"]["total"] = result["totals"]["formal"] + result["totals"]["informal"]
         logger.info(f"Calculated total votes: {result['totals']['total']}")
     
-    if not result["electorate"]:
-        result["electorate"] = "WARRINGAH"
-        logger.info("Setting default electorate to WARRINGAH")
+    result["electorate"] = "WARRINGAH"
+    logger.info("Setting electorate to WARRINGAH")
     
     if not result["booth_name"]:
         result["booth_name"] = "Unknown Booth"
@@ -1080,35 +1079,10 @@ async def api_electorates():
     Get all unique electorates from the candidates table
     """
     try:
-        db_path = SQLALCHEMY_DATABASE_URL.replace('sqlite:///', '')
-        logger.info(f"Connecting to database at: {db_path}")
-        logger.info(f"Current working directory: {os.getcwd()}")
-        
-        db_file = Path(db_path)
-        if db_file.exists():
-            logger.info(f"Database file exists: {db_file}")
-            logger.info(f"File permissions: {oct(os.stat(db_file).st_mode)}")
-            logger.info(f"File owner: {os.stat(db_file).st_uid}")
-        else:
-            logger.warning(f"Database file does not exist: {db_file}")
-            parent_dir = db_file.parent
-            if parent_dir.exists():
-                logger.info(f"Parent directory exists: {parent_dir}")
-                logger.info(f"Directory permissions: {oct(os.stat(parent_dir).st_mode)}")
-                logger.info(f"Directory contents: {list(parent_dir.iterdir())}")
-            else:
-                logger.warning(f"Parent directory does not exist: {parent_dir}")
-        
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT DISTINCT electorate FROM candidates ORDER BY electorate")
-        electorates = [row[0] for row in cursor.fetchall()]
-        conn.close()
-        
+        # Return only Warringah electorate
         return {
             "status": "success",
-            "electorates": electorates
+            "electorates": ["WARRINGAH"]
         }
     except Exception as e:
         logger.error(f"Error getting electorates: {e}")
@@ -1126,27 +1100,11 @@ async def api_candidates():
     try:
         db_path = SQLALCHEMY_DATABASE_URL.replace('sqlite:///', '')
         logger.info(f"Connecting to database at: {db_path}")
-        logger.info(f"Current working directory: {os.getcwd()}")
-        
-        db_file = Path(db_path)
-        if db_file.exists():
-            logger.info(f"Database file exists: {db_file}")
-            logger.info(f"File permissions: {oct(os.stat(db_file).st_mode)}")
-            logger.info(f"File owner: {os.stat(db_file).st_uid}")
-        else:
-            logger.warning(f"Database file does not exist: {db_file}")
-            parent_dir = db_file.parent
-            if parent_dir.exists():
-                logger.info(f"Parent directory exists: {parent_dir}")
-                logger.info(f"Directory permissions: {oct(os.stat(parent_dir).st_mode)}")
-                logger.info(f"Directory contents: {list(parent_dir.iterdir())}")
-            else:
-                logger.warning(f"Parent directory does not exist: {parent_dir}")
         
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        cursor.execute("SELECT * FROM candidates ORDER BY electorate, candidate_name")
+        cursor.execute("SELECT * FROM candidates WHERE electorate = 'WARRINGAH' ORDER BY candidate_name")
         columns = [col[0] for col in cursor.description]
         candidates = [dict(zip(columns, row)) for row in cursor.fetchall()]
         conn.close()
