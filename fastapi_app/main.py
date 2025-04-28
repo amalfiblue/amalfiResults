@@ -49,8 +49,10 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent))
 logger.info(f"Adding parent directory to Python path: {str(Path(__file__).parent.parent)}")
 from utils.booth_results_processor import process_and_load_booth_results
+from utils.candidate_data_loader import process_and_load_candidate_data
 
 process_and_load_booth_results()
+process_and_load_candidate_data()
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -1122,9 +1124,10 @@ async def api_electorates():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/candidates")
-async def api_candidates():
+@app.get("/api/candidates")
+async def api_candidates(electorate: str = None, house: str = "house"):
     """
-    Get all candidates
+    Get all candidates or filter by electorate and house
     """
     try:
         db_path = SQLALCHEMY_DATABASE_URL.replace('sqlite:///', '')
@@ -1133,7 +1136,20 @@ async def api_candidates():
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        cursor.execute("SELECT * FROM candidates WHERE electorate = 'Warringah' ORDER BY ballot_position")
+        query = "SELECT * FROM candidates"
+        params = []
+        
+        if electorate:
+            query += " WHERE electorate = ?"
+            params.append(electorate)
+            
+            if house:
+                query += " AND candidate_type = ?"
+                params.append(house)
+        
+        query += " ORDER BY ballot_position"
+        
+        cursor.execute(query, params)
         columns = [col[0] for col in cursor.description]
         candidates = [dict(zip(columns, row)) for row in cursor.fetchall()]
         conn.close()
