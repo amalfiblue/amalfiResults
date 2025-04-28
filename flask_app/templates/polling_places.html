@@ -346,8 +346,14 @@
     
     // Function to update the polling places table
     function updatePollingPlacesTable(pollingPlaces) {
-        const tableBody = document.querySelector('tbody');
-        if (!tableBody) return;
+        // Specifically target the polling places table's tbody
+        const tableBody = document.querySelector('.card:nth-of-type(1) tbody');
+        if (!tableBody) {
+            console.error("Could not find polling places table body");
+            return;
+        }
+        
+        console.log("Found polling places table body, updating with", pollingPlaces.length, "places");
         
         // Clear existing rows
         tableBody.innerHTML = '';
