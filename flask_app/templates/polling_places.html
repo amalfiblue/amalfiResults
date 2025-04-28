@@ -1,0 +1,314 @@
+{% extends "base.html" %}
+
+{% block title %}Polling Places - Amalfi Results{% endblock %}
+
+{% block content %}
+    <h1>Polling Places</h1>
+    
+    <div class="row mt-4">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Filter Results</h5>
+                </div>
+                <div class="card-body">
+                    <form id="polling-place-filter-form">
+                        <div class="mb-3">
+                            <label for="electorate" class="form-label">Electorate</label>
+                            <select class="form-select" id="electorate" name="electorate">
+                                <option value="">All Electorates</option>
+                                <!-- Electorates will be loaded via JavaScript -->
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="booth" class="form-label">Polling Place</label>
+                            <input type="text" class="form-control" id="booth" name="booth" value="{{ booth }}">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Filter</button>
+                        <a href="/polling-places" class="btn btn-outline-secondary">Reset</a>
+                    </form>
+                </div>
+            </div>
+            
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Election Data</h5>
+                </div>
+                <div class="card-body">
+                    <p>Last updated: {{ last_updated }}</p>
+                    <a href="/update-polling-places-data" class="btn btn-outline-primary">Update Polling Places Data</a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Polling Places</h5>
+                </div>
+                <div class="card-body">
+                    {% if polling_places %}
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Electorate</th>
+                                        <th>Polling Place</th>
+                                        <th>State</th>
+                                        <th>Address</th>
+                                        <th>Status</th>
+                                        <th>Wheelchair Access</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for place in polling_places %}
+                                    <tr>
+                                        <td>{{ place.division_name }}</td>
+                                        <td>{{ place.polling_place_name }}</td>
+                                        <td>{{ place.state }}</td>
+                                        <td>{{ place.address }}</td>
+                                        <td>{{ place.status }}</td>
+                                        <td>{{ place.wheelchair_access }}</td>
+                                        <td>
+                                            <a href="/admin/polling-places/{{ place.division_name }}?place={{ place.polling_place_id }}" class="btn btn-sm btn-primary">
+                                                View Details
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-info">
+                            No polling places found for the selected filters. Please try different criteria.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+            
+            {% if current_results %}
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Current Results</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Timestamp</th>
+                                    <th>Electorate</th>
+                                    <th>Booth</th>
+                                    <th>Details</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for result in current_results %}
+                                <tr>
+                                    <td>{{ result.id }}</td>
+                                    <td>{{ result.timestamp }}</td>
+                                    <td>{{ result.electorate }}</td>
+                                    <td>{{ result.booth_name }}</td>
+                                    <td>
+                                        <a href="/results/{{ result.id }}" class="btn btn-sm btn-primary">
+                                            View Details
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script>
+    // Load polling places and current results directly from FastAPI when the page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        loadElectorates();
+        
+        const electorate = document.getElementById('electorate').value;
+        const boothFilter = document.getElementById('booth').value;
+        
+        if (electorate) {
+            loadCurrentResults(electorate, boothFilter);
+        }
+        
+        // Set up form submission handler
+        const form = document.getElementById('polling-place-filter-form');
+        form.addEventListener('submit', function(event) {
+            event.preventDefault();
+            const electorate = document.getElementById('electorate').value;
+            const booth = document.getElementById('booth').value;
+            
+            // Update URL parameters
+            const params = new URLSearchParams();
+            if (electorate) params.append('electorate', electorate);
+            if (booth) params.append('booth', booth);
+            
+            // Reload page with new parameters
+            window.location.href = `/polling-places?${params.toString()}`;
+        });
+    });
+    
+    // Function to load electorates from FastAPI
+    function loadElectorates() {
+        fetch('/api/electorates', {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.status === 'success') {
+                updateElectoratesDropdown(data.electorates);
+            } else {
+                console.error('Error loading electorates:', data.message || 'Unknown error');
+            }
+        })
+        .catch(error => {
+            console.error('Error loading electorates:', error);
+        });
+    }
+    
+    // Function to update the electorates dropdown
+    function updateElectoratesDropdown(electorates) {
+        const dropdown = document.getElementById('electorate');
+        const currentValue = '{{ electorate }}';
+        
+        // Keep the first option (All Electorates)
+        const firstOption = dropdown.options[0];
+        dropdown.innerHTML = '';
+        dropdown.appendChild(firstOption);
+        
+        // Add electorates from API
+        electorates.forEach(electorate => {
+            const option = document.createElement('option');
+            option.value = electorate;
+            option.textContent = electorate;
+            if (electorate === currentValue) {
+                option.selected = true;
+            }
+            dropdown.appendChild(option);
+        });
+    }
+    
+    // Function to load current results from FastAPI
+    function loadCurrentResults(electorate, booth) {
+        // Build query parameters
+        let params = new URLSearchParams();
+        if (electorate) {
+            params.append('electorate', electorate);
+        }
+        if (booth) {
+            params.append('booth', booth);
+        }
+        
+        // Fetch results from FastAPI
+        fetch(`/api/results?${params.toString()}`, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.status === 'success') {
+                updateCurrentResultsTable(data.results);
+            } else {
+                console.error('Error loading results:', data.message || 'Unknown error');
+            }
+        })
+        .catch(error => {
+            console.error('Error loading results:', error);
+        });
+    }
+    
+    // Function to update the current results table
+    function updateCurrentResultsTable(results) {
+        const currentResultsSection = document.querySelector('.card:nth-of-type(2)');
+        
+        if (results && results.length > 0) {
+            // Create or update the current results section
+            if (!currentResultsSection) {
+                const container = document.querySelector('.col-md-8');
+                const newSection = document.createElement('div');
+                newSection.className = 'card mt-3';
+                newSection.innerHTML = `
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Current Results</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Timestamp</th>
+                                        <th>Electorate</th>
+                                        <th>Booth</th>
+                                        <th>Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="currentResultsBody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(newSection);
+            }
+            
+            // Update the table body
+            const tableBody = document.getElementById('currentResultsBody') || 
+                              document.querySelector('.card:nth-of-type(2) tbody');
+            
+            if (tableBody) {
+                tableBody.innerHTML = '';
+                
+                results.forEach(result => {
+                    const row = document.createElement('tr');
+                    const timestamp = new Date(result.timestamp);
+                    
+                    row.innerHTML = `
+                        <td>${result.id}</td>
+                        <td>${timestamp.toLocaleString()}</td>
+                        <td>${result.electorate || ''}</td>
+                        <td>${result.booth_name || ''}</td>
+                        <td>
+                            <a href="/results/${result.id}" class="btn btn-sm btn-primary">
+                                View Details
+                            </a>
+                        </td>
+                    `;
+                    
+                    tableBody.appendChild(row);
+                });
+            }
+        } else if (currentResultsSection) {
+            // Hide the section if no results
+            currentResultsSection.style.display = 'none';
+        }
+    }
+</script>
+{% endblock %}

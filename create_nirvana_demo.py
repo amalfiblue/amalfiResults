@@ -142,37 +142,36 @@ def create_candidates_table():
     except Exception as e:
         logger.error(f"Error creating candidates table: {e}")
 
-def create_booth_results_table():
+def create_polling_places_table():
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        cursor.execute("DROP TABLE IF EXISTS booth_results_2022")
-        logger.info("Dropped existing booth_results_2022 table")
+        cursor.execute("DROP TABLE IF EXISTS polling_places")
+        logger.info("Dropped existing polling_places table")
         
         cursor.execute('''
-        CREATE TABLE IF NOT EXISTS booth_results_2022 (
+        CREATE TABLE IF NOT EXISTS polling_places (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             state TEXT NOT NULL,
             division_id INTEGER NOT NULL,
             division_name TEXT NOT NULL,
             polling_place_id INTEGER NOT NULL,
             polling_place_name TEXT NOT NULL,
-            liberal_national_votes INTEGER,
-            liberal_national_percentage REAL,
-            labor_votes INTEGER,
-            labor_percentage REAL,
-            total_votes INTEGER,
-            swing REAL,
+            address TEXT,
+            latitude REAL,
+            longitude REAL,
+            status TEXT,
+            wheelchair_access TEXT,
             data JSON
         )
         ''')
         
         conn.commit()
-        logger.info("Successfully created booth_results_2022 table")
+        logger.info("Successfully created polling_places table")
         conn.close()
     except Exception as e:
-        logger.error(f"Error creating booth_results_2022 table: {e}")
+        logger.error(f"Error creating polling_places table: {e}")
 
 def create_results_table():
     try:
@@ -231,66 +230,51 @@ def insert_candidates():
     except Exception as e:
         logger.error(f"Error inserting candidates: {e}")
 
-def insert_booth_results():
+def insert_polling_places():
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        cursor.execute("SELECT COUNT(*) FROM booth_results_2022 WHERE division_name = 'Nirvana'")
+        cursor.execute("SELECT COUNT(*) FROM polling_places WHERE division_name = 'Nirvana'")
         count = cursor.fetchone()[0]
         
         if count > 0:
-            logger.info(f"Nirvana booth results already exist ({count} records). Skipping insertion.")
+            logger.info(f"Nirvana polling places already exist ({count} records). Skipping insertion.")
         else:
             for i, booth in enumerate(nirvana_booths):
-                total_votes = random.randint(1000, 3000)
-                liberal_votes = random.randint(int(total_votes * 0.4), int(total_votes * 0.6))
-                labor_votes = total_votes - liberal_votes
-                liberal_percent = (liberal_votes / total_votes) * 100
-                labor_percent = (labor_votes / total_votes) * 100
-                swing = random.uniform(-5.0, 5.0)
+                polling_place_id = 10000 + i
                 
                 data = {
-                    "StateAb": "NSW",
-                    "DivisionID": 12345,
-                    "DivisionNm": "Nirvana",
-                    "PollingPlaceID": 10000 + i,
-                    "PollingPlace": booth,
-                    "Liberal/National Coalition Votes": liberal_votes,
-                    "Liberal/National Coalition Percentage": liberal_percent,
-                    "Australian Labor Party Votes": labor_votes,
-                    "Australian Labor Party Percentage": labor_percent,
-                    "TotalVotes": total_votes,
-                    "Swing": swing
+                    "state": "NSW",
+                    "division_id": 12345,
+                    "division_name": "Nirvana",
+                    "polling_place_id": polling_place_id,
+                    "polling_place_name": booth
                 }
                 
                 cursor.execute('''
-                INSERT INTO booth_results_2022 
+                INSERT INTO polling_places 
                 (state, division_id, division_name, polling_place_id, polling_place_name, 
-                liberal_national_votes, liberal_national_percentage, labor_votes, 
-                labor_percentage, total_votes, swing, data)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                address, status, wheelchair_access, data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     "NSW",
                     12345,
                     "Nirvana",
-                    10000 + i,
+                    polling_place_id,
                     booth,
-                    liberal_votes,
-                    liberal_percent,
-                    labor_votes,
-                    labor_percent,
-                    total_votes,
-                    swing,
+                    f"{booth} Polling Place, Nirvana, NSW",
+                    "Current",
+                    "Yes" if random.random() > 0.2 else "No",
                     json.dumps(data)
                 ))
             
             conn.commit()
-            logger.info(f"Successfully inserted {len(nirvana_booths)} Nirvana booth results")
+            logger.info(f"Successfully inserted {len(nirvana_booths)} Nirvana polling places")
         
         conn.close()
     except Exception as e:
-        logger.error(f"Error inserting booth results: {e}")
+        logger.error(f"Error inserting polling places: {e}")
 
 def insert_current_results():
     try:
@@ -401,10 +385,10 @@ def set_tcp_candidates():
 
 def create_nirvana_demo():
     create_candidates_table()
-    create_booth_results_table()
+    create_polling_places_table()
     create_results_table()
     insert_candidates()
-    insert_booth_results()
+    insert_polling_places()
     insert_current_results()
     set_tcp_candidates()
     logger.info("Nirvana demo data creation completed")

@@ -19,7 +19,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from utils.aec_data_downloader import download_and_process_aec_data, get_candidates_for_electorate
-from utils.booth_results_processor import process_and_load_booth_results, get_booth_results_for_division, get_booth_results_for_polling_place, calculate_swing
+from utils.booth_results_processor import process_and_load_polling_places, get_polling_places_for_division
 
 load_dotenv()
 
@@ -340,9 +340,9 @@ def update_aec_data():
     return redirect(url_for('get_candidates_page'))
 
 
-@app.route('/booth-results')
-def get_booth_results_page():
-    """Get booth results page - frontend directly queries FastAPI"""
+@app.route('/polling-places')
+def get_polling_places_page():
+    """Get polling places page - frontend directly queries FastAPI"""
     electorate = request.args.get('electorate', '')
     booth = request.args.get('booth', '')
     
@@ -356,22 +356,16 @@ def get_booth_results_page():
             return redirect(url_for('index'))
     
     # Initialize empty arrays - frontend will populate via direct API call
-    booth_results = []
+    polling_places = []
     current_results = []
-    
-    if electorate:
-        # Only get booth results from local database - results will be loaded by frontend
-        booth_results = get_booth_results_for_division(electorate)
-        if booth and booth.strip():
-            booth_results = [r for r in booth_results if booth.lower() in r['polling_place_name'].lower()]
     
     messages = []
     for category, message in get_flashed_messages(with_categories=True):
         messages.append((category, message))
     
     return render_template(
-        'booth_results_new.html',
-        booth_results=booth_results,
+        'polling_places.html',
+        polling_places=polling_places,
         current_results=current_results,
         electorates=electorates,
         electorate=electorate,
@@ -381,19 +375,19 @@ def get_booth_results_page():
         is_admin=current_user.is_admin if hasattr(current_user, 'is_admin') else False
     )
 
-@app.route('/update-booth-data')
-def update_booth_data():
+@app.route('/update-polling-places-data')
+def update_polling_places_data():
     try:
-        success = process_and_load_booth_results()
+        success = process_and_load_polling_places()
         if success:
-            flash("Booth results data updated successfully!", "success")
+            flash("Polling places data updated successfully!", "success")
         else:
-            flash("Failed to update booth results data. Check logs for details.", "error")
+            flash("Failed to update polling places data. Check logs for details.", "error")
     except Exception as e:
-        app.logger.error(f"Error updating booth results data: {e}")
-        flash(f"Error updating booth results data: {str(e)}", "error")
+        app.logger.error(f"Error updating polling places data: {e}")
+        flash(f"Error updating polling places data: {str(e)}", "error")
     
-    return redirect(url_for('get_booth_results_page'))
+    return redirect(url_for('get_polling_places_page'))
 
 
 @app.route('/dashboard')
@@ -428,10 +422,10 @@ def get_dashboard(electorate=None):
     primary_votes_array = []
     tcp_votes_array = []
     
-    # Get historical booth counts for each electorate
+    # Get polling places counts for each electorate
     for e in electorates:
-        historical_booths = get_booth_results_for_division(e)
-        total_booths[e] = len(historical_booths) if historical_booths else 0
+        polling_places = get_polling_places_for_division(e)
+        total_booths[e] = len(polling_places) if polling_places else 0
         booth_counts[e] = 0  # Will be populated by frontend
     
     if not electorate:

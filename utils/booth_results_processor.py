@@ -70,294 +70,7 @@ def download_booth_results_file() -> bool:
         logger.error(f"Traceback: {traceback.format_exc()}")
         return False
 
-def create_booth_results_table() -> None:
-    """Create the booth_results table in the SQLite database if it doesn't exist."""
-    try:
-        logger.info(f"Creating booth_results table in database: {DB_PATH}")
-        db_path_str = str(DB_PATH)
-        logger.info(f"Database path as string: {db_path_str}")
-        conn = sqlite3.connect(db_path_str)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS booth_results_2022 (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            state TEXT NOT NULL,
-            division_id INTEGER NOT NULL,
-            division_name TEXT NOT NULL,
-            polling_place_id INTEGER NOT NULL,
-            polling_place_name TEXT NOT NULL,
-            liberal_national_votes INTEGER,
-            liberal_national_percentage REAL,
-            labor_votes INTEGER,
-            labor_percentage REAL,
-            total_votes INTEGER,
-            swing REAL,
-            data JSON
-        )
-        ''')
-        
-        conn.commit()
-        conn.close()
-        logger.info("Successfully created booth_results_2022 table")
-    except Exception as e:
-        logger.error(f"Error creating booth_results_2022 table: {e}")
 
-def process_booth_results_file(file_path: Path) -> List[Dict[str, Any]]:
-    """
-    Process the booth results CSV file.
-    
-    Args:
-        file_path: Path to the CSV file
-        
-    Returns:
-        List of dictionaries, each representing a row in the CSV
-    """
-    try:
-        logger.info(f"Processing booth results file: {file_path}")
-        results = []
-        
-        with open(file_path, 'r', encoding='utf-8') as f:
-            next(f)
-            reader = csv.DictReader(f)
-            
-            for row in reader:
-                processed_row = {
-                    'state': row.get('StateAb', ''),
-                    'division_id': int(row.get('DivisionID', 0)),
-                    'division_name': row.get('DivisionNm', ''),
-                    'polling_place_id': int(row.get('PollingPlaceID', 0)),
-                    'polling_place_name': row.get('PollingPlace', ''),
-                    'liberal_national_votes': int(row.get('Liberal/National Coalition Votes', 0)),
-                    'liberal_national_percentage': float(row.get('Liberal/National Coalition Percentage', 0)),
-                    'labor_votes': int(row.get('Australian Labor Party Votes', 0)),
-                    'labor_percentage': float(row.get('Australian Labor Party Percentage', 0)),
-                    'total_votes': int(row.get('TotalVotes', 0)),
-                    'swing': float(row.get('Swing', 0)),
-                    'data': json.dumps(row)
-                }
-                results.append(processed_row)
-        
-        logger.info(f"Successfully processed {len(results)} booth results")
-        return results
-    except Exception as e:
-        logger.error(f"Error processing booth results file {file_path}: {e}")
-        return []
-
-def save_booth_results_to_database(results: List[Dict[str, Any]]) -> bool:
-    """
-    Save booth results to the SQLite database.
-    
-    Args:
-        results: List of booth result dictionaries
-        
-    Returns:
-        bool: True if save was successful, False otherwise
-    """
-    try:
-        logger.info(f"Saving {len(results)} booth results to database")
-        db_path_str = str(DB_PATH)
-        conn = sqlite3.connect(db_path_str)
-        cursor = conn.cursor()
-        
-        cursor.execute("DELETE FROM booth_results_2022")
-        
-        for result in results:
-            cursor.execute('''
-            INSERT INTO booth_results_2022 
-            (state, division_id, division_name, polling_place_id, polling_place_name, 
-             liberal_national_votes, liberal_national_percentage, labor_votes, 
-             labor_percentage, total_votes, swing, data)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                result['state'],
-                result['division_id'],
-                result['division_name'],
-                result['polling_place_id'],
-                result['polling_place_name'],
-                result['liberal_national_votes'],
-                result['liberal_national_percentage'],
-                result['labor_votes'],
-                result['labor_percentage'],
-                result['total_votes'],
-                result['swing'],
-                result['data']
-            ))
-        
-        conn.commit()
-        conn.close()
-        logger.info(f"Successfully saved booth results to database")
-        return True
-    except Exception as e:
-        logger.error(f"Error saving booth results to database: {e}")
-        return False
-
-def get_booth_results_for_division(division_name: str) -> List[Dict[str, Any]]:
-    """
-    Get booth results for a specific division from the database.
-    
-    Args:
-        division_name: Name of the division/electorate
-        
-    Returns:
-        List of booth result dictionaries
-    """
-    try:
-        logger.info(f"Getting booth results for division: {division_name}")
-        db_path_str = str(DB_PATH)
-        conn = sqlite3.connect(db_path_str)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        SELECT * FROM booth_results_2022 
-        WHERE division_name = ? 
-        ORDER BY polling_place_name
-        ''', (division_name,))
-        
-        rows = cursor.fetchall()
-        results = [dict(row) for row in rows]
-        
-        # Get TCP candidates for this division
-        tcp_candidates = get_tcp_candidates_for_division(division_name)
-        
-        for result in results:
-            result['tcp_candidates'] = tcp_candidates
-            
-            if len(tcp_candidates) >= 2:
-                try:
-                    raw_data = json.loads(result.get('data', '{}'))
-                    
-                    # Find the TCP percentages for the actual candidates
-                    tcp_candidate_1 = tcp_candidates[0]['candidate_name']
-                    tcp_candidate_1_party = tcp_candidates[0]['party']
-                    tcp_candidate_2 = tcp_candidates[1]['candidate_name']
-                    tcp_candidate_2_party = tcp_candidates[1]['party']
-                    
-                    logger.info(f"Raw data keys for polling place: {result.get('polling_place_name', 'Unknown')}")
-                    logger.info(f"TCP candidates: {tcp_candidate_1} ({tcp_candidate_1_party}) and {tcp_candidate_2} ({tcp_candidate_2_party})")
-                    logger.info(f"Raw data keys: {list(raw_data.keys())}")
-                    
-                    # For Liberal/National candidates
-                    if tcp_candidate_1_party in ['LIB', 'NAT', 'LNP']:
-                        tcp_candidate_1_votes = int(raw_data.get("Liberal/National Coalition Votes", 0))
-                        tcp_candidate_1_percentage = float(raw_data.get("Liberal/National Coalition Percentage", 0))
-                    # For Labor candidates
-                    elif tcp_candidate_1_party == 'ALP':
-                        tcp_candidate_1_votes = int(raw_data.get("Australian Labor Party Votes", 0))
-                        tcp_candidate_1_percentage = float(raw_data.get("Australian Labor Party Percentage", 0))
-                    # For independent candidates - use 100% minus the other candidate's percentage
-                    else:
-                        # We need to calculate Andrew Wilkie's percentage as 100% - Simon Behrakis's percentage
-                        
-                        if tcp_candidate_2_party in ['LIB', 'NAT', 'LNP']:
-                            lib_percentage = float(raw_data.get("Liberal/National Coalition Percentage", 0))
-                            # Calculate independent percentage as 100% - Liberal percentage
-                            tcp_candidate_1_percentage = 100.0 - lib_percentage
-                            tcp_candidate_1_votes = int(raw_data.get("TotalVotes", 0)) - int(raw_data.get("Liberal/National Coalition Votes", 0))
-                        elif tcp_candidate_2_party == 'ALP':
-                            alp_percentage = float(raw_data.get("Australian Labor Party Percentage", 0))
-                            # Calculate independent percentage as 100% - Labor percentage
-                            tcp_candidate_1_percentage = 100.0 - alp_percentage
-                            tcp_candidate_1_votes = int(raw_data.get("TotalVotes", 0)) - int(raw_data.get("Australian Labor Party Votes", 0))
-                        else:
-                            tcp_candidate_1_votes = 0
-                            tcp_candidate_1_percentage = 0
-                    
-                    if tcp_candidate_2_party in ['LIB', 'NAT', 'LNP']:
-                        tcp_candidate_2_votes = int(raw_data.get("Liberal/National Coalition Votes", 0))
-                        tcp_candidate_2_percentage = float(raw_data.get("Liberal/National Coalition Percentage", 0))
-                    elif tcp_candidate_2_party == 'ALP':
-                        tcp_candidate_2_votes = int(raw_data.get("Australian Labor Party Votes", 0))
-                        tcp_candidate_2_percentage = float(raw_data.get("Australian Labor Party Percentage", 0))
-                    else:
-                        # For independent candidates - use 100% minus the other candidate's percentage
-                        if tcp_candidate_1_party in ['LIB', 'NAT', 'LNP']:
-                            lib_percentage = float(raw_data.get("Liberal/National Coalition Percentage", 0))
-                            # Calculate independent percentage as 100% - Liberal percentage
-                            tcp_candidate_2_percentage = 100.0 - lib_percentage
-                            tcp_candidate_2_votes = int(raw_data.get("TotalVotes", 0)) - int(raw_data.get("Liberal/National Coalition Votes", 0))
-                        elif tcp_candidate_1_party == 'ALP':
-                            alp_percentage = float(raw_data.get("Australian Labor Party Percentage", 0))
-                            # Calculate independent percentage as 100% - Labor percentage
-                            tcp_candidate_2_percentage = 100.0 - alp_percentage
-                            tcp_candidate_2_votes = int(raw_data.get("TotalVotes", 0)) - int(raw_data.get("Australian Labor Party Votes", 0))
-                        else:
-                            tcp_candidate_2_votes = 0
-                            tcp_candidate_2_percentage = 0
-                    
-                    result['tcp_candidate_1_name'] = tcp_candidate_1
-                    result['tcp_candidate_1_party'] = tcp_candidates[0]['party']
-                    result['tcp_candidate_1_votes'] = tcp_candidate_1_votes
-                    result['tcp_candidate_1_percentage'] = tcp_candidate_1_percentage
-                    
-                    result['tcp_candidate_2_name'] = tcp_candidate_2
-                    result['tcp_candidate_2_party'] = tcp_candidates[1]['party']
-                    result['tcp_candidate_2_votes'] = tcp_candidate_2_votes
-                    result['tcp_candidate_2_percentage'] = tcp_candidate_2_percentage
-                    
-                    # Calculate swing based on TCP candidates
-                    if tcp_candidate_1_percentage and tcp_candidate_2_percentage:
-                        result['tcp_swing'] = tcp_candidate_1_percentage - tcp_candidate_2_percentage
-                    else:
-                        result['tcp_swing'] = 0
-                        
-                except Exception as e:
-                    logger.error(f"Error processing TCP data for polling place: {e}")
-                    pass
-        
-        conn.close()
-        logger.info(f"Found {len(results)} booth results for division {division_name}")
-        return results
-    except Exception as e:
-        logger.error(f"Error getting booth results for division {division_name}: {e}")
-        return []
-
-def get_booth_results_for_polling_place(division_name: str, polling_place_name: str) -> Optional[Dict[str, Any]]:
-    """
-    Get booth results for a specific polling place in a division from the database.
-    
-    Args:
-        division_name: Name of the division/electorate
-        polling_place_name: Name of the polling place/booth
-        
-    Returns:
-        Booth result dictionary or None if not found
-    """
-    try:
-        logger.info(f"Getting booth results for polling place: {polling_place_name} in division: {division_name}")
-        db_path_str = str(DB_PATH)
-        conn = sqlite3.connect(db_path_str)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        SELECT * FROM booth_results_2022 
-        WHERE division_name = ? AND polling_place_name = ?
-        ''', (division_name, polling_place_name))
-        
-        row = cursor.fetchone()
-        
-        if row is None:
-            cursor.execute('''
-            SELECT * FROM booth_results_2022 
-            WHERE division_name = ? AND polling_place_name LIKE ?
-            ''', (division_name, f"%{polling_place_name}%"))
-            
-            row = cursor.fetchone()
-        
-        result = dict(row) if row else None
-        
-        conn.close()
-        if result:
-            logger.info(f"Found booth results for polling place {polling_place_name} in division {division_name}")
-        else:
-            logger.info(f"No booth results found for polling place {polling_place_name} in division {division_name}")
-        
-        return result
-    except Exception as e:
-        logger.error(f"Error getting booth results for polling place {polling_place_name} in division {division_name}: {e}")
-        return None
 
 def get_tcp_candidates_for_division(division_name: str) -> List[Dict[str, Any]]:
     """
@@ -453,41 +166,6 @@ def get_polling_place_by_id(polling_place_id: int) -> Optional[Dict[str, Any]]:
         logger.error(f"Error getting polling place by ID {polling_place_id}: {e}")
         return None
 
-def get_booth_result_by_polling_place_id(polling_place_id: int) -> Optional[Dict[str, Any]]:
-    """
-    Get 2022 booth result by polling place ID.
-    
-    Args:
-        polling_place_id: ID of the polling place
-        
-    Returns:
-        Booth result dictionary or None if not found
-    """
-    try:
-        logger.info(f"Getting 2022 booth result for polling place ID: {polling_place_id}")
-        db_path_str = str(DB_PATH)
-        conn = sqlite3.connect(db_path_str)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-        SELECT * FROM booth_results_2022 
-        WHERE polling_place_id = ?
-        ''', (polling_place_id,))
-        
-        row = cursor.fetchone()
-        result = dict(row) if row else None
-        
-        conn.close()
-        if result:
-            logger.info(f"Found 2022 booth result for polling place ID {polling_place_id}")
-        else:
-            logger.info(f"No 2022 booth result found for polling place ID {polling_place_id}")
-        
-        return result
-    except Exception as e:
-        logger.error(f"Error getting 2022 booth result for polling place ID {polling_place_id}: {e}")
-        return None
 
 def create_polling_places_table() -> None:
     """Create the polling_places table in the SQLite database if it doesn't exist."""
@@ -872,118 +550,13 @@ def save_polling_places_to_database(polling_places: List[Dict[str, Any]]) -> boo
         logger.error(f"Traceback: {traceback.format_exc()}")
         return False
 
-def extract_and_save_polling_places() -> bool:
-    """
-    Extract polling place data from booth_results_2022 and save to polling_places table.
-    This is a fallback method when current polling places data is not available.
-    
-    Returns:
-        bool: True if successful, False otherwise
-    """
-    try:
-        logger.info("Extracting polling places from booth_results_2022 as fallback")
-        db_path_str = str(DB_PATH)
-        conn = sqlite3.connect(db_path_str)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        # First, completely clear the polling_places table
-        cursor.execute("DELETE FROM polling_places")
-        conn.commit()
-        
-        cursor.execute("SELECT COUNT(*) FROM polling_places")
-        count = cursor.fetchone()[0]
-        logger.info(f"Polling places table has {count} records after clearing")
-        
-        # Get unique polling places from booth_results_2022
-        cursor.execute('''
-        SELECT DISTINCT 
-            state, 
-            division_id, 
-            division_name, 
-            polling_place_id, 
-            polling_place_name
-        FROM booth_results_2022
-        WHERE state != '' AND division_id > 0 AND polling_place_id > 0 
-        AND division_name != '' AND polling_place_name != ''
-        ORDER BY division_name, polling_place_name
-        ''')
-        
-        polling_places = [dict(row) for row in cursor.fetchall()]
-        logger.info(f"Found {len(polling_places)} unique valid polling places from 2022 data")
-        
-        valid_polling_places = []
-        invalid_count = 0
-        
-        for place in polling_places:
-            if (not place.get('state') or 
-                not place.get('division_name') or 
-                not place.get('polling_place_name') or 
-                place.get('polling_place_id', 0) <= 0 or 
-                place.get('division_id', 0) <= 0):
-                invalid_count += 1
-                continue
-                
-            place['status'] = 'Current'
-            place['wheelchair_access'] = ''
-            valid_polling_places.append(place)
-        
-        logger.info(f"Filtered out {invalid_count} invalid records, proceeding with {len(valid_polling_places)} valid records")
-        
-        for place in valid_polling_places:
-            cursor.execute('''
-            INSERT INTO polling_places
-            (state, division_id, division_name, polling_place_id, polling_place_name, 
-             status, wheelchair_access, data)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                place['state'],
-                place['division_id'],
-                place['division_name'],
-                place['polling_place_id'],
-                place['polling_place_name'],
-                place['status'],
-                place['wheelchair_access'],
-                json.dumps(place)
-            ))
-        
-        conn.commit()
-        
-        cursor.execute("""
-        SELECT COUNT(*) FROM polling_places 
-        WHERE state = '' OR division_id = 0 OR polling_place_id = 0 OR 
-              division_name = '' OR polling_place_name = ''
-        """)
-        empty_count = cursor.fetchone()[0]
-        
-        if empty_count > 0:
-            logger.warning(f"Found {empty_count} empty records after insertion, removing them")
-            cursor.execute("""
-            DELETE FROM polling_places 
-            WHERE state = '' OR division_id = 0 OR polling_place_id = 0 OR 
-                  division_name = '' OR polling_place_name = ''
-            """)
-            conn.commit()
-        
-        cursor.execute("SELECT COUNT(*) FROM polling_places")
-        final_count = cursor.fetchone()[0]
-        logger.info(f"Successfully saved {final_count} polling places to database (from 2022 data)")
-        
-        conn.close()
-        return final_count > 0
-    except Exception as e:
-        logger.error(f"Error extracting and saving polling places: {e}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        return False
 
-def get_polling_places_for_division(division_name: str, include_comparison: bool = False) -> List[Dict[str, Any]]:
+def get_polling_places_for_division(division_name: str) -> List[Dict[str, Any]]:
     """
     Get polling places for a specific division from the database.
     
     Args:
         division_name: Name of the division/electorate
-        include_comparison: Whether to include comparison with 2022 results
         
     Returns:
         List of polling place dictionaries
@@ -1004,128 +577,90 @@ def get_polling_places_for_division(division_name: str, include_comparison: bool
         rows = cursor.fetchall()
         polling_places = [dict(row) for row in rows]
         
-        # If comparison is requested, add 2022 booth results for each polling place
-        if include_comparison:
-            for place in polling_places:
-                polling_place_id = place.get('polling_place_id')
-                if polling_place_id:
-                    # Get 2022 booth result for this polling place ID
-                    booth_result = get_booth_result_by_polling_place_id(polling_place_id)
-                    if booth_result:
-                        place['booth_result_2022'] = booth_result
-                        place['has_2022_comparison'] = True
-                        place['comparison_type'] = 'direct'
-                        place['original_division_2022'] = booth_result.get('division_name')
-                    else:
-                        if division_name == 'Warringah':
-                            cursor.execute('''
-                            SELECT * FROM booth_results_2022 
-                            WHERE polling_place_id = ? AND division_name = 'North Sydney'
-                            ''', (polling_place_id,))
-                            
-                            north_sydney_row = cursor.fetchone()
-                            if north_sydney_row:
-                                north_sydney_result = dict(north_sydney_row)
-                                place['booth_result_2022'] = north_sydney_result
-                                place['has_2022_comparison'] = True
-                                place['comparison_type'] = 'redistribution'
-                                place['original_division_2022'] = 'North Sydney'
-                                
-                                # Get TCP candidates for North Sydney
-                                tcp_candidates = get_tcp_candidates_for_division('North Sydney')
-                                if tcp_candidates:
-                                    place['tcp_candidates_2022'] = tcp_candidates
-                            else:
-                                place['has_2022_comparison'] = False
-                        else:
-                            place['has_2022_comparison'] = False
-                else:
-                    place['has_2022_comparison'] = False
-        
         conn.close()
         logger.info(f"Found {len(polling_places)} polling places for division {division_name}")
         return polling_places
     except Exception as e:
         logger.error(f"Error getting polling places for division {division_name}: {e}")
-        try:
-            logger.info(f"Falling back to booth_results_2022 for division: {division_name}")
-            return get_booth_results_for_division(division_name)
-        except Exception as fallback_e:
-            logger.error(f"Error in fallback: {fallback_e}")
-            return []
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return []  # Return empty list
 
 def create_sample_2025_polling_places_data() -> List[Dict[str, Any]]:
     """
-    Create a sample dataset for 2025 polling places based on 2022 data
-    with updated division assignments for redistribution.
+    Create a sample dataset for 2025 polling places without using 2022 data.
     
     Returns:
         List[Dict[str, Any]]: List of polling place dictionaries
     """
     try:
         logger.info("Creating sample 2025 polling places dataset")
-        db_path_str = str(DB_PATH)
-        conn = sqlite3.connect(db_path_str)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
         
-        # Get unique polling places from booth_results_2022
-        cursor.execute('''
-        SELECT DISTINCT 
-            state, 
-            division_id, 
-            division_name, 
-            polling_place_id, 
-            polling_place_name
-        FROM booth_results_2022
-        WHERE state != '' AND division_id > 0 AND polling_place_id > 0 
-        AND division_name != '' AND polling_place_name != ''
-        ORDER BY division_name, polling_place_name
-        ''')
+        sample_divisions = {
+            'Warringah': {'id': 151, 'state': 'NSW'},
+            'Bradfield': {'id': 103, 'state': 'NSW'},
+            'North Sydney': {'id': 134, 'state': 'NSW'},
+            'Bennelong': {'id': 102, 'state': 'NSW'},
+            'Mackellar': {'id': 127, 'state': 'NSW'}
+        }
         
-        polling_places = [dict(row) for row in cursor.fetchall()]
-        logger.info(f"Found {len(polling_places)} unique valid polling places from 2022 data")
+        sample_polling_places = []
+        polling_place_id = 50000  # Start with a high ID to avoid conflicts
         
-        north_sydney_to_warringah = [
-            'North Sydney',
-            'Wollstonecraft',
-            'Cammeray South',
-            'Cammeray Central'
+        warringah_places = [
+            'Allambie', 'Allambie Heights', 'Balgowlah', 'Balgowlah East', 
+            'Balgowlah Heights', 'Balmoral', 'Beacon Hill', 'Beauty Point',
+            'Brookvale', 'Clontarf', 'Collaroy', 'Collaroy Plateau', 'Curl Curl',
+            'Dee Why', 'Fairlight', 'Forestville', 'Frenchs Forest', 'Killarney Heights',
+            'Manly', 'Manly Vale', 'North Balgowlah', 'North Curl Curl', 'North Manly',
+            'Queenscliff', 'Seaforth', 'Wollstonecraft', 'North Sydney'
         ]
         
-        sample_2025_polling_places = []
+        for place_name in warringah_places:
+            polling_place_id += 1
+            sample_polling_places.append({
+                'state': 'NSW',
+                'division_id': 151,  # Warringah
+                'division_name': 'Warringah',
+                'polling_place_id': polling_place_id,
+                'polling_place_name': place_name,
+                'status': 'Current',
+                'wheelchair_access': 'Yes' if random.random() > 0.2 else 'No',
+                'address': f"{place_name} Polling Place, Warringah, NSW"
+            })
         
-        for place in polling_places:
-            if (not place.get('state') or 
-                not place.get('division_name') or 
-                not place.get('polling_place_name') or 
-                place.get('polling_place_id', 0) <= 0 or 
-                place.get('division_id', 0) <= 0):
-                continue
-            
-            if place['polling_place_name'] in north_sydney_to_warringah and place['division_name'] == 'North Sydney':
-                place['division_name'] = 'Warringah'
-                place['division_id'] = 151  # Warringah division ID
-                logger.info(f"Reassigned {place['polling_place_name']} from North Sydney to Warringah")
-            
-            if place['polling_place_name'] == 'Cammeray' and place['polling_place_id'] == 121997:
-                place['division_name'] = 'Bradfield'
-                place['division_id'] = 103  # Bradfield division ID
-                logger.info(f"Kept Cammeray (ID 121997) in Bradfield division")
-            elif place['polling_place_name'] == 'Cammeray' and place['division_name'] == 'North Sydney':
-                place['division_name'] = 'Warringah'
-                place['division_id'] = 151  # Warringah division ID
-                logger.info(f"Reassigned Cammeray from North Sydney to Warringah")
-            
-            place['status'] = 'Current'
-            place['wheelchair_access'] = 'Yes' if random.random() > 0.2 else 'No'
-            place['address'] = f"{place['polling_place_name']} Polling Place, {place['division_name']}, {place['state']}"
-            
-            sample_2025_polling_places.append(place)
+        bradfield_places = [
+            'Cammeray', 'Chatswood', 'East Lindfield', 'Gordon', 'Killara',
+            'Lindfield', 'Pymble', 'Roseville', 'St Ives', 'Turramurra', 'Wahroonga',
+            'Waitara', 'Warrawee', 'West Pymble'
+        ]
         
-        conn.close()
-        logger.info(f"Created sample dataset with {len(sample_2025_polling_places)} polling places for 2025")
-        return sample_2025_polling_places
+        for place_name in bradfield_places:
+            polling_place_id += 1
+            sample_polling_places.append({
+                'state': 'NSW',
+                'division_id': 103,  # Bradfield
+                'division_name': 'Bradfield',
+                'polling_place_id': polling_place_id,
+                'polling_place_name': place_name,
+                'status': 'Current',
+                'wheelchair_access': 'Yes' if random.random() > 0.2 else 'No',
+                'address': f"{place_name} Polling Place, Bradfield, NSW"
+            })
+        
+        sample_polling_places.append({
+            'state': 'NSW',
+            'division_id': 103,  # Bradfield
+            'division_name': 'Bradfield',
+            'polling_place_id': 121997,
+            'polling_place_name': 'Cammeray',
+            'status': 'Current',
+            'wheelchair_access': 'Yes',
+            'address': "Cammeray Polling Place, Bradfield, NSW"
+        })
+        
+        logger.info(f"Created sample dataset with {len(sample_polling_places)} polling places for 2025")
+        return sample_polling_places
     except Exception as e:
         logger.error(f"Error creating sample 2025 polling places data: {e}")
         import traceback
@@ -1240,51 +775,26 @@ def process_and_load_polling_places() -> bool:
 
 def process_and_load_booth_results() -> bool:
     """
-    Process and load booth results from the 2022 federal election.
-    Downloads the booth results file if it doesn't exist.
+    Process and load polling places data for the 2025 federal election.
     
     Returns:
         bool: True if all operations were successful, False otherwise
     """
     try:
         ensure_data_dir()
-        
-        create_booth_results_table()
-        create_polling_places_table()  # Create the new polling_places table
-        
-        booth_results_path = DATA_DIR / "HouseTppByPollingPlaceDownload-27966.csv"
-        if not booth_results_path.exists():
-            logger.info(f"Booth results file not found at {booth_results_path}, downloading...")
-            if not download_booth_results_file():
-                logger.error("Failed to download booth results file")
-                return False
-        
-        if not booth_results_path.exists():
-            logger.error(f"Booth results file still not found at {booth_results_path} after download attempt")
-            return False
-            
-        logger.info(f"Processing booth results file: {booth_results_path}")
-        results = process_booth_results_file(booth_results_path)
-        if not results:
-            logger.error("Failed to process booth results file")
-            return False
-        
-        logger.info(f"Saving {len(results)} booth results to database")
-        booth_success = save_booth_results_to_database(results)
+        create_polling_places_table()
         
         logger.info("Loading 2025 polling places data")
         polling_places_success = process_and_load_polling_places()
         
-        success = booth_success and polling_places_success
-        
-        if success:
-            logger.info("Successfully processed and loaded booth results and polling places")
+        if polling_places_success:
+            logger.info("Successfully processed and loaded polling places")
         else:
-            logger.error("Failed to save booth results and/or polling places to database")
+            logger.error("Failed to load polling places data")
             
-        return success
+        return polling_places_success
     except Exception as e:
-        logger.error(f"Error processing and loading booth results: {e}")
+        logger.error(f"Error processing and loading data: {e}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         return False
