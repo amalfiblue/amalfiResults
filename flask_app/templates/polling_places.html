@@ -136,11 +136,14 @@
     document.addEventListener('DOMContentLoaded', function() {
         loadElectorates();
         
-        const electorate = document.getElementById('electorate').value;
+        const electorate = document.getElementById('electorate').value || '{{ electorate }}';
         const boothFilter = document.getElementById('booth').value;
+        
+        console.log("DOMContentLoaded - electorate:", electorate);
         
         if (electorate) {
             loadCurrentResults(electorate, boothFilter);
+            loadPollingPlaces(electorate);
         }
         
         // Set up form submission handler
@@ -308,6 +311,143 @@
         } else if (currentResultsSection) {
             // Hide the section if no results
             currentResultsSection.style.display = 'none';
+        }
+    }
+    
+    // Function to load polling places from FastAPI
+    function loadPollingPlaces(electorate) {
+        if (!electorate) return;
+        console.log("Loading polling places for electorate:", electorate);
+        
+        fetch(`/api/booth-results?electorate=${encodeURIComponent(electorate)}`, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log("Received polling places data:", data);
+            if (data.status === 'success' && data.booth_results) {
+                updatePollingPlacesTable(data.booth_results);
+            } else {
+                console.error('Error loading polling places:', data.message || 'Unknown error');
+            }
+        })
+        .catch(error => {
+            console.error('Error loading polling places:', error);
+        });
+    }
+    
+    // Function to update the polling places table
+    function updatePollingPlacesTable(pollingPlaces) {
+        console.log("Updating polling places table with", pollingPlaces.length, "places");
+        
+        // Get the card body that should contain the table
+        const cardBody = document.querySelector('.col-md-8 .card-body');
+        if (!cardBody) {
+            console.error("Could not find card body for polling places");
+            return;
+        }
+        
+        if (pollingPlaces && pollingPlaces.length > 0) {
+            // Hide the "no polling places" message
+            const noPollingPlacesMessage = cardBody.querySelector('.alert-info');
+            if (noPollingPlacesMessage) {
+                noPollingPlacesMessage.style.display = 'none';
+            }
+            
+            // Check if table already exists, if not create it
+            let tableContainer = cardBody.querySelector('.table-responsive');
+            if (!tableContainer) {
+                // Create table structure
+                tableContainer = document.createElement('div');
+                tableContainer.className = 'table-responsive';
+                
+                const table = document.createElement('table');
+                table.className = 'table table-striped';
+                
+                const thead = document.createElement('thead');
+                thead.innerHTML = `
+                    <tr>
+                        <th>Electorate</th>
+                        <th>Polling Place</th>
+                        <th>State</th>
+                        <th>Address</th>
+                        <th>Status</th>
+                        <th>Wheelchair Access</th>
+                        <th>Actions</th>
+                    </tr>
+                `;
+                
+                const tbody = document.createElement('tbody');
+                
+                table.appendChild(thead);
+                table.appendChild(tbody);
+                tableContainer.appendChild(table);
+                
+                // Replace the alert with the table
+                if (noPollingPlacesMessage) {
+                    cardBody.replaceChild(tableContainer, noPollingPlacesMessage);
+                } else {
+                    cardBody.appendChild(tableContainer);
+                }
+            }
+            
+            // Now we can safely get the tbody
+            const tableBody = tableContainer.querySelector('tbody');
+            if (!tableBody) {
+                console.error("Could not find or create table body");
+                return;
+            }
+            
+            // Clear existing rows
+            tableBody.innerHTML = '';
+            
+            // Add rows for each polling place
+            pollingPlaces.forEach(place => {
+                const row = document.createElement('tr');
+                
+                row.innerHTML = `
+                    <td>${place.division_name || ''}</td>
+                    <td>${place.polling_place_name || ''}</td>
+                    <td>${place.state || ''}</td>
+                    <td>${place.address || ''}</td>
+                    <td>${place.status || ''}</td>
+                    <td>${place.wheelchair_access || ''}</td>
+                    <td>
+                        <a href="/admin/polling-places/${place.division_name}?place=${place.polling_place_id}" class="btn btn-sm btn-primary">
+                            View Details
+                        </a>
+                    </td>
+                `;
+                
+                tableBody.appendChild(row);
+            });
+        } else {
+            // Show "no polling places found" message
+            let noPollingPlacesMessage = cardBody.querySelector('.alert-info');
+            
+            // If the message doesn't exist, create it
+            if (!noPollingPlacesMessage) {
+                noPollingPlacesMessage = document.createElement('div');
+                noPollingPlacesMessage.className = 'alert alert-info';
+                noPollingPlacesMessage.textContent = 'No polling places found for the selected filters. Please try different criteria.';
+                cardBody.appendChild(noPollingPlacesMessage);
+            } else {
+                noPollingPlacesMessage.style.display = 'block';
+            }
+            
+            // Remove table if it exists
+            const tableContainer = cardBody.querySelector('.table-responsive');
+            if (tableContainer) {
+                cardBody.removeChild(tableContainer);
+            }
         }
     }
 </script>
