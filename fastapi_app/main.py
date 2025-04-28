@@ -1114,7 +1114,7 @@ async def api_candidates():
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        cursor.execute("SELECT * FROM candidates WHERE electorate = 'Warringah' ORDER BY candidate_name")
+        cursor.execute("SELECT * FROM candidates WHERE electorate = 'Warringah' ORDER BY ballot_position")
         columns = [col[0] for col in cursor.description]
         candidates = [dict(zip(columns, row)) for row in cursor.fetchall()]
         conn.close()
@@ -1144,9 +1144,9 @@ async def api_candidates_by_electorate(electorate: str, candidate_type: str = "h
         
         # Use electorate column for both senate and house candidates
         if candidate_type.lower() == "senate":
-            cursor.execute("SELECT * FROM candidates WHERE electorate = ? AND candidate_type = 'senate' ORDER BY candidate_name", (electorate,))
+            cursor.execute("SELECT * FROM candidates WHERE electorate = ? AND candidate_type = 'senate' ORDER BY ballot_position", (electorate,))
         else:
-            cursor.execute("SELECT * FROM candidates WHERE electorate = ? AND candidate_type = 'house' ORDER BY candidate_name", (electorate,))
+            cursor.execute("SELECT * FROM candidates WHERE electorate = ? AND candidate_type = 'house' ORDER BY ballot_position", (electorate,))
         
         columns = [col[0] for col in cursor.description]
         candidates = [dict(zip(columns, row)) for row in cursor.fetchall()]
