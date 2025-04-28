@@ -66,8 +66,8 @@
                                     <tr>
                                         <th>Polling Place Name</th>
                                         <th>State</th>
-                                        <th>2022 Liberal/National %</th>
-                                        <th>2022 Labor %</th>
+                                        <th id="tcp-candidate-1-header">2022 TCP Candidate 1 %</th>
+                                        <th id="tcp-candidate-2-header">2022 TCP Candidate 2 %</th>
                                         <th>2022 Swing</th>
                                         <th>Current Results</th>
                                         <th>Actions</th>
@@ -78,15 +78,37 @@
                                     <tr>
                                         <td>{{ place.polling_place_name }}</td>
                                         <td>{{ place.state }}</td>
-                                        <td>{{ place.liberal_national_percentage|round(2) }}%</td>
-                                        <td>{{ place.labor_percentage|round(2) }}%</td>
                                         <td>
-                                            {% if place.swing > 0 %}
-                                            <span class="text-danger">+{{ place.swing|round(2) }}% to ALP</span>
-                                            {% elif place.swing < 0 %}
-                                            <span class="text-primary">{{ place.swing|round(2) }}% to LNP</span>
+                                            {% if place.tcp_candidate_1_percentage is defined %}
+                                                {{ place.tcp_candidate_1_percentage|round(2) }}%
                                             {% else %}
-                                            No swing
+                                                {{ place.liberal_national_percentage|round(2) }}%
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if place.tcp_candidate_2_percentage is defined %}
+                                                {{ place.tcp_candidate_2_percentage|round(2) }}%
+                                            {% else %}
+                                                {{ place.labor_percentage|round(2) }}%
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if place.tcp_swing is defined %}
+                                                {% if place.tcp_swing > 0 %}
+                                                <span class="text-danger">+{{ place.tcp_swing|round(2) }}% to {{ place.tcp_candidate_1_name or 'Candidate 1' }}</span>
+                                                {% elif place.tcp_swing < 0 %}
+                                                <span class="text-primary">{{ place.tcp_swing|round(2) }}% to {{ place.tcp_candidate_2_name or 'Candidate 2' }}</span>
+                                                {% else %}
+                                                No swing
+                                                {% endif %}
+                                            {% else %}
+                                                {% if place.swing > 0 %}
+                                                <span class="text-danger">+{{ place.swing|round(2) }}% to ALP</span>
+                                                {% elif place.swing < 0 %}
+                                                <span class="text-primary">{{ place.swing|round(2) }}% to LNP</span>
+                                                {% else %}
+                                                No swing
+                                                {% endif %}
                                             {% endif %}
                                         </td>
                                         <td>
@@ -266,7 +288,9 @@
         
         // Function to load polling places directly from the FastAPI
         function loadPollingPlaces() {
-            const division = document.querySelector('#division').value;
+            // Get division from URL parameter or dropdown
+            const urlParams = new URLSearchParams(window.location.search);
+            const division = urlParams.get('division') || document.querySelector('#division').value;
             if (!division) return;
             
             console.log("Loading polling places for division:", division);
@@ -278,13 +302,15 @@
                 }
             })
             .then(response => {
+                console.log("Fetch response status:", response.status);
                 if (!response.ok) {
-                    throw new Error('Network response was not ok');
+                    throw new Error(`HTTP error! Status: ${response.status}`);
                 }
                 return response.json();
             })
             .then(data => {
                 console.log("Received booth results:", data);
+                console.log("Data type:", typeof data, "Data structure:", Object.keys(data));
                 if (data.status === 'success' && data.booth_results) {
                     const tableBody = document.querySelector('tbody');
                     tableBody.innerHTML = ''; // Clear any existing rows
@@ -303,30 +329,54 @@
                         stateCell.textContent = place.state;
                         row.appendChild(stateCell);
                         
-                        // Liberal/National %
-                        const liberalCell = document.createElement('td');
-                        liberalCell.textContent = `${place.liberal_national_percentage.toFixed(2)}%`;
-                        row.appendChild(liberalCell);
+                        // TCP Candidate 1 %
+                        const tcp1Cell = document.createElement('td');
+                        if (place.tcp_candidate_1_percentage !== undefined) {
+                            tcp1Cell.textContent = `${place.tcp_candidate_1_percentage.toFixed(2)}%`;
+                        } else {
+                            tcp1Cell.textContent = `${place.liberal_national_percentage.toFixed(2)}%`;
+                        }
+                        row.appendChild(tcp1Cell);
                         
-                        // Labor %
-                        const laborCell = document.createElement('td');
-                        laborCell.textContent = `${place.labor_percentage.toFixed(2)}%`;
-                        row.appendChild(laborCell);
+                        // TCP Candidate 2 %
+                        const tcp2Cell = document.createElement('td');
+                        if (place.tcp_candidate_2_percentage !== undefined) {
+                            tcp2Cell.textContent = `${place.tcp_candidate_2_percentage.toFixed(2)}%`;
+                        } else {
+                            tcp2Cell.textContent = `${place.labor_percentage.toFixed(2)}%`;
+                        }
+                        row.appendChild(tcp2Cell);
                         
                         // Swing
                         const swingCell = document.createElement('td');
-                        if (place.swing > 0) {
-                            const span = document.createElement('span');
-                            span.className = 'text-danger';
-                            span.textContent = `+${place.swing.toFixed(2)}% to ALP`;
-                            swingCell.appendChild(span);
-                        } else if (place.swing < 0) {
-                            const span = document.createElement('span');
-                            span.className = 'text-primary';
-                            span.textContent = `${place.swing.toFixed(2)}% to LNP`;
-                            swingCell.appendChild(span);
+                        if (place.tcp_swing !== undefined) {
+                            if (place.tcp_swing > 0) {
+                                const span = document.createElement('span');
+                                span.className = 'text-danger';
+                                span.textContent = `+${place.tcp_swing.toFixed(2)}% to ${place.tcp_candidate_1_name || 'Candidate 1'}`;
+                                swingCell.appendChild(span);
+                            } else if (place.tcp_swing < 0) {
+                                const span = document.createElement('span');
+                                span.className = 'text-primary';
+                                span.textContent = `${place.tcp_swing.toFixed(2)}% to ${place.tcp_candidate_2_name || 'Candidate 2'}`;
+                                swingCell.appendChild(span);
+                            } else {
+                                swingCell.textContent = 'No swing';
+                            }
                         } else {
-                            swingCell.textContent = 'No swing';
+                            if (place.swing > 0) {
+                                const span = document.createElement('span');
+                                span.className = 'text-danger';
+                                span.textContent = `+${place.swing.toFixed(2)}% to ALP`;
+                                swingCell.appendChild(span);
+                            } else if (place.swing < 0) {
+                                const span = document.createElement('span');
+                                span.className = 'text-primary';
+                                span.textContent = `${place.swing.toFixed(2)}% to LNP`;
+                                swingCell.appendChild(span);
+                            } else {
+                                swingCell.textContent = 'No swing';
+                            }
                         }
                         row.appendChild(swingCell);
                         
@@ -474,30 +524,60 @@
                             stateCell.textContent = place.state;
                             row.appendChild(stateCell);
                             
-                            // Liberal/National %
-                            const liberalCell = document.createElement('td');
-                            liberalCell.textContent = `${place.liberal_national_percentage.toFixed(2)}%`;
-                            row.appendChild(liberalCell);
+                            // TCP Candidate 1 %
+                            const tcp1Cell = document.createElement('td');
+                            if (place.tcp_candidate_1_percentage !== undefined) {
+                                tcp1Cell.textContent = `${place.tcp_candidate_1_percentage.toFixed(2)}%`;
+                                // Update the header to show the candidate name
+                                document.getElementById('tcp-candidate-1-header').textContent = 
+                                    `2022 ${place.tcp_candidate_1_name || 'TCP Candidate 1'} %`;
+                            } else {
+                                tcp1Cell.textContent = `${place.liberal_national_percentage.toFixed(2)}%`;
+                            }
+                            row.appendChild(tcp1Cell);
                             
-                            // Labor %
-                            const laborCell = document.createElement('td');
-                            laborCell.textContent = `${place.labor_percentage.toFixed(2)}%`;
-                            row.appendChild(laborCell);
+                            // TCP Candidate 2 %
+                            const tcp2Cell = document.createElement('td');
+                            if (place.tcp_candidate_2_percentage !== undefined) {
+                                tcp2Cell.textContent = `${place.tcp_candidate_2_percentage.toFixed(2)}%`;
+                                // Update the header to show the candidate name
+                                document.getElementById('tcp-candidate-2-header').textContent = 
+                                    `2022 ${place.tcp_candidate_2_name || 'TCP Candidate 2'} %`;
+                            } else {
+                                tcp2Cell.textContent = `${place.labor_percentage.toFixed(2)}%`;
+                            }
+                            row.appendChild(tcp2Cell);
                             
                             // Swing
                             const swingCell = document.createElement('td');
-                            if (place.swing > 0) {
-                                const span = document.createElement('span');
-                                span.className = 'text-danger';
-                                span.textContent = `+${place.swing.toFixed(2)}% to ALP`;
-                                swingCell.appendChild(span);
-                            } else if (place.swing < 0) {
-                                const span = document.createElement('span');
-                                span.className = 'text-primary';
-                                span.textContent = `${place.swing.toFixed(2)}% to LNP`;
-                                swingCell.appendChild(span);
+                            if (place.tcp_swing !== undefined) {
+                                if (place.tcp_swing > 0) {
+                                    const span = document.createElement('span');
+                                    span.className = 'text-danger';
+                                    span.textContent = `+${place.tcp_swing.toFixed(2)}% to ${place.tcp_candidate_1_name || 'Candidate 1'}`;
+                                    swingCell.appendChild(span);
+                                } else if (place.tcp_swing < 0) {
+                                    const span = document.createElement('span');
+                                    span.className = 'text-primary';
+                                    span.textContent = `${place.tcp_swing.toFixed(2)}% to ${place.tcp_candidate_2_name || 'Candidate 2'}`;
+                                    swingCell.appendChild(span);
+                                } else {
+                                    swingCell.textContent = 'No swing';
+                                }
                             } else {
-                                swingCell.textContent = 'No swing';
+                                if (place.swing > 0) {
+                                    const span = document.createElement('span');
+                                    span.className = 'text-danger';
+                                    span.textContent = `+${place.swing.toFixed(2)}% to ALP`;
+                                    swingCell.appendChild(span);
+                                } else if (place.swing < 0) {
+                                    const span = document.createElement('span');
+                                    span.className = 'text-primary';
+                                    span.textContent = `${place.swing.toFixed(2)}% to LNP`;
+                                    swingCell.appendChild(span);
+                                } else {
+                                    swingCell.textContent = 'No swing';
+                                }
                             }
                             row.appendChild(swingCell);
                             
