@@ -1220,14 +1220,14 @@ async def api_dashboard(electorate: str):
             sys.path.append(parent_dir)
         
         try:
-            from utils.booth_results_processor import get_booth_results_for_division
+            from utils.booth_results_processor import get_polling_places_for_division
         except ImportError:
             sys.path.insert(0, os.path.join(parent_dir, "utils"))
-            from booth_results_processor import get_booth_results_for_division
+            from booth_results_processor import get_polling_places_for_division
             
-        historical_booths = get_booth_results_for_division(electorate)
-        total_booths = len(historical_booths) if historical_booths else 0
-        logger.info(f"Total historical booths for {electorate}: {total_booths}")
+        polling_places = get_polling_places_for_division(electorate)
+        total_booths = len(polling_places) if polling_places else 0
+        logger.info(f"Total polling places for {electorate}: {total_booths}")
         
         # Get results
         cursor.execute("""
