@@ -66,9 +66,9 @@
                                     <tr>
                                         <th>Polling Place Name</th>
                                         <th>State</th>
-                                        <th id="tcp-candidate-1-header">2022 TCP Candidate 1 %</th>
-                                        <th id="tcp-candidate-2-header">2022 TCP Candidate 2 %</th>
-                                        <th>2022 Swing</th>
+                                        <th id="tcp-candidate-1-header">TCP Candidate 1 %</th>
+                                        <th id="tcp-candidate-2-header">TCP Candidate 2 %</th>
+                                        <th>Swing</th>
                                         <th>Current Results</th>
                                         <th>Actions</th>
                                     </tr>
@@ -295,7 +295,7 @@
             
             console.log("Loading polling places for division:", division);
             
-            fetch(`/api/booth-results?electorate=${encodeURIComponent(division)}`, {
+            fetch(`/api/admin/polling-places/${encodeURIComponent(division)}`, {
                 method: 'GET',
                 headers: {
                     'Accept': 'application/json',
@@ -496,7 +496,7 @@
             // Clear existing rows if no polling places are displayed
             if (tableBody.children.length === 0) {
                 // Fetch polling places data directly from FastAPI
-                fetch(`/api/booth-results?electorate=${encodeURIComponent(division)}`, {
+                fetch(`/api/admin/polling-places/${encodeURIComponent(division)}`, {
                     method: 'GET',
                     headers: {
                         'Accept': 'application/json',
@@ -530,7 +530,7 @@
                                 tcp1Cell.textContent = `${place.tcp_candidate_1_percentage.toFixed(2)}%`;
                                 // Update the header to show the candidate name
                                 document.getElementById('tcp-candidate-1-header').textContent = 
-                                    `2022 ${place.tcp_candidate_1_name || 'TCP Candidate 1'} %`;
+                                    `${place.tcp_candidate_1_name || 'TCP Candidate 1'} %`;
                             } else {
                                 tcp1Cell.textContent = `${place.liberal_national_percentage.toFixed(2)}%`;
                             }
@@ -542,7 +542,7 @@
                                 tcp2Cell.textContent = `${place.tcp_candidate_2_percentage.toFixed(2)}%`;
                                 // Update the header to show the candidate name
                                 document.getElementById('tcp-candidate-2-header').textContent = 
-                                    `2022 ${place.tcp_candidate_2_name || 'TCP Candidate 2'} %`;
+                                    `${place.tcp_candidate_2_name || 'TCP Candidate 2'} %`;
                             } else {
                                 tcp2Cell.textContent = `${place.labor_percentage.toFixed(2)}%`;
                             }

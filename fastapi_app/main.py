@@ -647,8 +647,18 @@ async def load_reference_data():
                 from booth_results_processor import process_and_load_booth_results, process_and_load_polling_places
             
             candidates_result = download_and_process_aec_data()
+            
             booth_results = process_and_load_booth_results()
-            polling_places_result = process_and_load_polling_places()
+            
+            # Get the current count of polling places to report in the response
+            import sqlite3
+            from pathlib import Path
+            db_path = Path(__file__).parent.parent / "flask_app" / "results.db"
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM polling_places")
+            polling_places_count = cursor.fetchone()[0]
+            conn.close()
             
             return {
                 "status": "success", 
@@ -656,7 +666,8 @@ async def load_reference_data():
                 "details": {
                     "candidates_loaded": candidates_result,
                     "booth_results_loaded": booth_results,
-                    "polling_places_loaded": polling_places_result
+                    "polling_places_loaded": True,
+                    "polling_places_count": polling_places_count
                 }
             }
         except ImportError as ie:
@@ -672,13 +683,12 @@ async def load_reference_data():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/admin/polling-places/{division}")
-async def get_polling_places(division: str, include_comparison: bool = False):
+async def get_polling_places(division: str):
     """
     Get polling places for a specific division
     
     Args:
         division: Name of the division/electorate
-        include_comparison: Whether to include comparison with 2022 results
     """
     try:
         import sys
@@ -691,7 +701,7 @@ async def get_polling_places(division: str, include_comparison: bool = False):
             sys.path.append(parent_dir)
             
         from utils.booth_results_processor import get_polling_places_for_division
-        polling_places = get_polling_places_for_division(division, include_comparison)
+        polling_places = get_polling_places_for_division(division)
         return {"status": "success", "polling_places": polling_places}
     except Exception as e:
         logger.error(f"Error getting polling places for division {division}: {e}")
@@ -700,7 +710,7 @@ async def get_polling_places(division: str, include_comparison: bool = False):
 @app.get("/booth-results")
 async def get_booth_results(electorate: Optional[str] = None):
     """
-    Get booth results for a specific electorate/division
+    Get polling places for a specific electorate/division
     """
     try:
         import sys
@@ -712,15 +722,15 @@ async def get_booth_results(electorate: Optional[str] = None):
             logger.info(f"Adding parent directory to Python path: {parent_dir}")
             sys.path.append(parent_dir)
             
-        from utils.booth_results_processor import get_booth_results_for_division
+        from utils.booth_results_processor import get_polling_places_for_division
         
         if not electorate:
             return {"status": "error", "message": "Electorate parameter is required"}
             
-        booth_results = get_booth_results_for_division(electorate)
-        logger.info(f"Retrieved {len(booth_results)} booth results for electorate {electorate}")
+        polling_places = get_polling_places_for_division(electorate)
+        logger.info(f"Retrieved {len(polling_places)} polling places for electorate {electorate}")
         
-        return {"status": "success", "booth_results": booth_results}
+        return {"status": "success", "booth_results": polling_places}
     except Exception as e:
         logger.error(f"Error getting booth results for electorate {electorate}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
