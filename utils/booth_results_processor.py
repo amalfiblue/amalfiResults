@@ -547,46 +547,95 @@ def download_polling_places_data() -> bool:
         polling_places_dir = DATA_DIR / "polling_places"
         polling_places_dir.mkdir(exist_ok=True)
         
-        # This is the actual URL from the AEC website for the 2025 federal election
-        polling_places_url = "https://www.aec.gov.au/About_AEC/cea-notices/files/prdelms-gaz-statics.csv"
+        polling_places_url = "https://www.aec.gov.au/election/files/polling-places-2025.csv"
         polling_places_path = polling_places_dir / "polling-places-2025.csv"
         
         if polling_places_path.exists():
-            logger.info(f"Polling places file already exists at {polling_places_path}")
-            return True
-            
-        try:
-            logger.info(f"Downloading polling places data from {polling_places_url}")
-            response = requests.get(polling_places_url, timeout=30)
-            response.raise_for_status()
-            
-            with open(polling_places_path, 'wb') as f:
-                f.write(response.content)
+            try:
+                with open(polling_places_path, 'r', encoding='utf-8-sig') as f:
+                    first_line = f.readline().strip()
+                    if first_line.startswith('<!DOCTYPE html>') or '<html' in first_line:
+                        logger.warning(f"Existing polling places file contains HTML instead of CSV data. Deleting and re-downloading.")
+                        polling_places_path.unlink()  # Delete the corrupted file
+                    else:
+                        logger.info(f"Polling places file already exists at {polling_places_path} and appears to be valid CSV")
+                        return True
+            except Exception as e:
+                logger.warning(f"Error checking existing polling places file: {e}")
+                polling_places_path.unlink()  # Delete the potentially corrupted file
+        
+        potential_urls = [
+            "https://www.aec.gov.au/election/files/polling-places-2025.csv",
+            "https://www.aec.gov.au/About_AEC/cea-notices/files/polling-places-2025.csv",
+            "https://www.aec.gov.au/Elections/federal_elections/2025/files/polling-places.csv"
+        ]
+        
+        download_success = False
+        for url in potential_urls:
+            try:
+                logger.info(f"Attempting to download polling places data from {url}")
+                response = requests.get(url, timeout=30)
+                response.raise_for_status()
                 
-            logger.info(f"Successfully downloaded polling places data to {polling_places_path}")
+                content_type = response.headers.get('content-type', '')
+                content_preview = response.content[:100].decode('utf-8', errors='ignore')
+                
+                if 'text/html' in content_type or content_preview.startswith('<!DOCTYPE html>') or '<html' in content_preview:
+                    logger.warning(f"URL {url} returned HTML instead of CSV data. Skipping.")
+                    continue
+                
+                with open(polling_places_path, 'wb') as f:
+                    f.write(response.content)
+                
+                with open(polling_places_path, 'r', encoding='utf-8-sig') as f:
+                    first_line = f.readline().strip()
+                    if first_line.startswith('<!DOCTYPE html>') or '<html' in first_line:
+                        logger.warning(f"Downloaded file from {url} contains HTML instead of CSV data. Skipping.")
+                        polling_places_path.unlink()  # Delete the corrupted file
+                        continue
+                
+                logger.info(f"Successfully downloaded polling places data from {url} to {polling_places_path}")
+                download_success = True
+                break
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"Could not download polling places data from {url}: {e}")
+        
+        if download_success:
             return True
-        except requests.exceptions.RequestException as e:
-            logger.warning(f"Could not download polling places data from AEC website: {e}")
-            logger.warning("Checking for local copy of the polling places data...")
             
-            possible_paths = [
-                Path("~/browser_downloads/prdelms.gaz.statics.250428.09.00.02.csv").expanduser(),
-                Path("/home/ubuntu/browser_downloads/prdelms.gaz.statics.250428.09.00.02.csv"),
-                Path("/tmp/prdelms.gaz.statics.250428.09.00.02.csv")
-            ]
-            
-            for local_copy in possible_paths:
-                if local_copy.exists():
-                    logger.info(f"Found local copy of polling places data at {local_copy}")
-                    import shutil
-                    shutil.copy(local_copy, polling_places_path)
-                    logger.info(f"Copied local polling places data to {polling_places_path}")
-                    return True
-            
-            logger.info(f"Checked these paths for local polling places data: {possible_paths}")
-            logger.info(f"None of the local paths exist")
-            logger.warning("No local copy found. Falling back to extracting polling places from 2022 booth results")
-            return False
+        logger.warning("All download attempts failed. Checking for local copy of the polling places data...")
+        
+        possible_paths = [
+            Path("~/browser_downloads/polling-places-2025.csv").expanduser(),
+            Path("/home/ubuntu/browser_downloads/polling-places-2025.csv"),
+            Path("/tmp/polling-places-2025.csv"),
+            Path("~/browser_downloads/prdelms.gaz.statics.250428.09.00.02.csv").expanduser(),
+            Path("/home/ubuntu/browser_downloads/prdelms.gaz.statics.250428.09.00.02.csv"),
+            Path("/tmp/prdelms.gaz.statics.250428.09.00.02.csv")
+        ]
+        
+        for local_copy in possible_paths:
+            if local_copy.exists():
+                logger.info(f"Found local copy of polling places data at {local_copy}")
+                
+                try:
+                    with open(local_copy, 'r', encoding='utf-8-sig') as f:
+                        first_line = f.readline().strip()
+                        if first_line.startswith('<!DOCTYPE html>') or '<html' in first_line:
+                            logger.warning(f"Local file {local_copy} contains HTML instead of CSV data. Skipping.")
+                            continue
+                except Exception as e:
+                    logger.warning(f"Error checking local file {local_copy}: {e}")
+                    continue
+                
+                import shutil
+                shutil.copy(local_copy, polling_places_path)
+                logger.info(f"Copied local polling places data to {polling_places_path}")
+                return True
+        
+        logger.info(f"Checked these paths for local polling places data: {possible_paths}")
+        logger.error(f"All download attempts failed and no valid local copy found.")
+        return False
     except Exception as e:
         logger.error(f"Error downloading polling places data: {e}")
         import traceback
