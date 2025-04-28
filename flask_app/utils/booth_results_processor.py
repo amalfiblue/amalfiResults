@@ -277,5 +277,73 @@ def process_and_load_booth_results() -> bool:
         logger.error(f"Error processing and loading booth results: {e}")
         return False
 
+def create_polling_places_table() -> None:
+    """Create the polling_places table in the SQLite database if it doesn't exist."""
+    try:
+        logger.info(f"Creating polling_places table in database: {DB_PATH}")
+        db_path_str = str(DB_PATH)
+        logger.info(f"Database path as string: {db_path_str}")
+        conn = sqlite3.connect(db_path_str)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS polling_places (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            state TEXT NOT NULL,
+            division_id INTEGER NOT NULL,
+            division_name TEXT NOT NULL,
+            polling_place_id INTEGER NOT NULL,
+            polling_place_name TEXT NOT NULL,
+            address TEXT,
+            latitude REAL,
+            longitude REAL,
+            data JSON
+        )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        logger.info("Successfully created polling_places table")
+    except Exception as e:
+        logger.error(f"Error creating polling_places table: {e}")
+
+def get_polling_places_for_division(division_name: str) -> List[Dict[str, Any]]:
+    """
+    Get polling places for a specific division from the database.
+    
+    Args:
+        division_name: Name of the division/electorate
+        
+    Returns:
+        List of polling place dictionaries
+    """
+    try:
+        logger.info(f"Getting polling places for division: {division_name}")
+        db_path_str = str(DB_PATH)
+        conn = sqlite3.connect(db_path_str)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        SELECT * FROM polling_places 
+        WHERE division_name = ? 
+        ORDER BY polling_place_name
+        ''', (division_name,))
+        
+        rows = cursor.fetchall()
+        polling_places = [dict(row) for row in rows]
+        
+        conn.close()
+        logger.info(f"Found {len(polling_places)} polling places for division {division_name}")
+        return polling_places
+    except Exception as e:
+        logger.error(f"Error getting polling places for division {division_name}: {e}")
+        try:
+            logger.info(f"Falling back to booth_results_2022 for division: {division_name}")
+            return get_booth_results_for_division(division_name)
+        except Exception as fallback_e:
+            logger.error(f"Error in fallback: {fallback_e}")
+            return []
+
 if __name__ == "__main__":
     process_and_load_booth_results()
