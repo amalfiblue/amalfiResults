@@ -31,6 +31,9 @@
                                 </form>
                             </div>
                             <div class="col-md-6 text-end">
+                                <a href="/admin/tcp-candidates/{{ division }}" class="btn btn-primary me-2">
+                                    TCP Candidates
+                                </a>
                                 <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#resetResultsModal">
                                     Reset Results
                                 </button>
@@ -81,15 +84,19 @@
                                         <td>
                                             {% if place.tcp_candidate_1_percentage is defined %}
                                                 {{ place.tcp_candidate_1_percentage|round(2) }}%
-                                            {% else %}
+                                            {% elif place.liberal_national_percentage is defined %}
                                                 {{ place.liberal_national_percentage|round(2) }}%
+                                            {% else %}
+                                                N/A
                                             {% endif %}
                                         </td>
                                         <td>
                                             {% if place.tcp_candidate_2_percentage is defined %}
                                                 {{ place.tcp_candidate_2_percentage|round(2) }}%
-                                            {% else %}
+                                            {% elif place.labor_percentage is defined %}
                                                 {{ place.labor_percentage|round(2) }}%
+                                            {% else %}
+                                                N/A
                                             {% endif %}
                                         </td>
                                         <td>
@@ -99,16 +106,18 @@
                                                 {% elif place.tcp_swing < 0 %}
                                                 <span class="text-primary">{{ place.tcp_swing|round(2) }}% to {{ place.tcp_candidate_2_name or 'Candidate 2' }}</span>
                                                 {% else %}
-                                                No swing
+                                                <span class="text-secondary">No swing</span>
                                                 {% endif %}
-                                            {% else %}
+                                            {% elif place.swing is defined %}
                                                 {% if place.swing > 0 %}
                                                 <span class="text-danger">+{{ place.swing|round(2) }}% to ALP</span>
                                                 {% elif place.swing < 0 %}
                                                 <span class="text-primary">{{ place.swing|round(2) }}% to LNP</span>
                                                 {% else %}
-                                                No swing
+                                                <span class="text-secondary">No swing</span>
                                                 {% endif %}
+                                            {% else %}
+                                                <span class="text-secondary">N/A</span>
                                             {% endif %}
                                         </td>
                                         <td>

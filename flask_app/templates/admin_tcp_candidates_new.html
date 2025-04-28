@@ -89,12 +89,14 @@
     // Load candidates and TCP candidates directly from FastAPI when the page loads
     document.addEventListener('DOMContentLoaded', function() {
         const electorate = '{{ electorate }}';
+        console.log("DOMContentLoaded - Loading data for electorate:", electorate);
         loadCandidates(electorate);
         loadTCPCandidates(electorate);
     });
     
     // Function to load candidates from FastAPI
     function loadCandidates(electorate) {
+        console.log("Loading candidates for electorate:", electorate);
         fetch(`/api/candidates?electorate=${encodeURIComponent(electorate)}&house=house`, {
             method: 'GET',
             headers: {
@@ -102,12 +104,14 @@
             }
         })
         .then(response => {
+            console.log("Candidates API response status:", response.status);
             if (!response.ok) {
                 throw new Error('Network response was not ok');
             }
             return response.json();
         })
         .then(data => {
+            console.log("Received candidates data:", data);
             if (data.status === 'success') {
                 // Get candidate votes to display
                 loadCandidateVotes(electorate, data.candidates);
@@ -122,6 +126,7 @@
     
     // Function to load candidate votes from FastAPI
     function loadCandidateVotes(electorate, candidates) {
+        console.log("Loading candidate votes for electorate:", electorate, "with candidates:", candidates);
         fetch(`/api/dashboard/${encodeURIComponent(electorate)}/candidate-votes`, {
             method: 'GET',
             headers: {
@@ -129,18 +134,24 @@
             }
         })
         .then(response => {
+            console.log("Candidate votes API response status:", response.status);
             if (!response.ok) {
                 throw new Error('Network response was not ok');
             }
             return response.json();
         })
         .then(data => {
+            console.log("Received candidate votes data:", data);
             if (data.status === 'success') {
-                const candidateVotes = data.candidate_votes || {};
+                const candidateVotes = data.primary_votes || [];
+                console.log("Parsed primary votes:", candidateVotes);
                 
                 // Update candidates with vote counts
                 candidates.forEach(candidate => {
-                    candidate.votes = candidateVotes[candidate.name] || 0;
+                    const candidateName = candidate.candidate_name || candidate.name;
+                    const voteData = candidateVotes.find(v => v.candidate === candidateName);
+                    candidate.votes = voteData ? voteData.votes : 0;
+                    console.log(`Candidate ${candidateName} has ${candidate.votes} votes`);
                 });
                 
                 // Update the candidates table
@@ -160,6 +171,7 @@
     
     // Function to load TCP candidates from FastAPI
     function loadTCPCandidates(electorate) {
+        console.log("Loading TCP candidates for electorate:", electorate);
         fetch(`/api/tcp-candidates/${encodeURIComponent(electorate)}`, {
             method: 'GET',
             headers: {
@@ -167,15 +179,19 @@
             }
         })
         .then(response => {
+            console.log("TCP candidates API response status:", response.status);
             if (!response.ok) {
                 throw new Error('Network response was not ok');
             }
             return response.json();
         })
         .then(data => {
+            console.log("Received TCP candidates data:", data);
             if (data.status === 'success') {
-                const tcpCandidates = data.tcp_candidates || [];
+                const tcpCandidates = data.candidates || [];
+                console.log("TCP candidates:", tcpCandidates);
                 const tcpCandidateNames = tcpCandidates.map(c => c.candidate_name);
+                console.log("TCP candidate names:", tcpCandidateNames);
                 
                 // Update the TCP candidates section
                 updateTCPCandidatesSection(tcpCandidateNames);
@@ -206,7 +222,7 @@
                                    onchange="validateSelection(this)">
                         </div>
                     </td>
-                    <td>${candidate.name}</td>
+                    <td>${candidate.candidate_name || candidate.name || 'Unknown'}</td>
                     <td>${candidate.party || ''}</td>
                     <td>${candidate.ballot_position || ''}</td>
                     <td>${candidate.votes || 0}</td>
@@ -222,30 +238,63 @@
     
     // Function to update the TCP candidates section
     function updateTCPCandidatesSection(tcpCandidateNames) {
-        const tcpCandidatesSection = document.querySelector('.mb-4:first-of-type');
+        // Get all sections with h5 headers
+        const allSections = document.querySelectorAll('.mb-4');
+        const tcpSections = [];
         
-        if (tcpCandidatesSection) {
-            const alertDiv = tcpCandidatesSection.querySelector('div');
-            
-            if (tcpCandidateNames && tcpCandidateNames.length > 0) {
-                alertDiv.className = 'alert alert-info';
-                alertDiv.innerHTML = `
-                    <strong>Current TCP Candidates:</strong>
-                    <ol>
-                        ${tcpCandidateNames.map(name => `<li>${name}</li>`).join('')}
-                    </ol>
-                `;
-            } else {
-                alertDiv.className = 'alert alert-warning';
-                alertDiv.textContent = 'No TCP candidates have been set for this electorate yet.';
+        // Find sections with "Current TCP Candidates" headers
+        allSections.forEach(section => {
+            const h5 = section.querySelector('h5');
+            if (h5 && h5.textContent.includes('Current TCP Candidates')) {
+                tcpSections.push(section);
             }
-            
-            // Store TCP candidate names for checkbox checking
-            window.tcpCandidateNames = tcpCandidateNames;
-            
-            // Check TCP candidates after section is updated
-            checkTCPCandidates();
+        });
+        
+        // If we can't find the sections by header, use the first mb-4 div
+        if (tcpSections.length === 0) {
+            const firstSection = document.querySelector('.mb-4:first-of-type');
+            if (firstSection) {
+                tcpSections.push(firstSection);
+            }
         }
+        
+        // Update each TCP section
+        tcpSections.forEach(section => {
+            if (section) {
+                // Check if alert div exists, create it if it doesn't
+                let alertDiv = section.querySelector('.alert');
+                
+                if (!alertDiv) {
+                    alertDiv = document.createElement('div');
+                    // Insert after the h5 if it exists, otherwise append to the section
+                    const h5 = section.querySelector('h5');
+                    if (h5) {
+                        h5.insertAdjacentElement('afterend', alertDiv);
+                    } else {
+                        section.appendChild(alertDiv);
+                    }
+                }
+                
+                if (tcpCandidateNames && tcpCandidateNames.length > 0) {
+                    alertDiv.className = 'alert alert-info';
+                    alertDiv.innerHTML = `
+                        <strong>Current TCP Candidates:</strong>
+                        <ol>
+                            ${tcpCandidateNames.map(name => `<li>${name}</li>`).join('')}
+                        </ol>
+                    `;
+                } else {
+                    alertDiv.className = 'alert alert-warning';
+                    alertDiv.textContent = 'No TCP candidates have been set for this electorate yet.';
+                }
+            }
+        });
+        
+        // Store TCP candidate names for checkbox checking
+        window.tcpCandidateNames = tcpCandidateNames;
+        
+        // Check TCP candidates after section is updated
+        checkTCPCandidates();
     }
     
     // Function to check TCP candidates in the table
@@ -257,7 +306,12 @@
                 const candidateName = row.querySelector('td:nth-child(2)').textContent;
                 const checkbox = row.querySelector('input[type="checkbox"]');
                 
-                if (window.tcpCandidateNames.includes(candidateName)) {
+                // Check if the candidate name is in the TCP candidates list
+                // Try both exact match and substring match (in case of formatting differences)
+                if (window.tcpCandidateNames.some(tcpName => 
+                    tcpName === candidateName || 
+                    candidateName.includes(tcpName) || 
+                    tcpName.includes(candidateName))) {
                     checkbox.checked = true;
                 }
             });
