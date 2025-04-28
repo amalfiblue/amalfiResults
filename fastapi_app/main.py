@@ -1028,6 +1028,7 @@ async def api_results_count(electorate: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/tcp-candidates/{electorate}")
+@app.get("/api/tcp-candidates/{electorate}")
 async def api_tcp_candidates(electorate: str):
     """
     Get TCP candidates for a specific electorate
@@ -1054,6 +1055,7 @@ async def api_tcp_candidates(electorate: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/tcp-candidates/{electorate}")
+@app.post("/api/tcp-candidates/{electorate}")
 async def api_update_tcp_candidates(electorate: str, request: Request):
     """
     Update TCP candidates for a specific electorate
@@ -1180,6 +1182,7 @@ async def api_candidates_by_electorate(electorate: str, candidate_type: str = "h
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/dashboard/{electorate}")
+@app.get("/api/dashboard/{electorate}")
 async def api_dashboard(electorate: str):
     """
     Get all dashboard data for a specific electorate
@@ -1351,6 +1354,84 @@ async def api_dashboard(electorate: str):
         }
     except Exception as e:
         logger.error(f"Error getting dashboard data for electorate {electorate}: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error details: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/dashboard/{electorate}/candidate-votes")
+@app.get("/api/dashboard/{electorate}/candidate-votes")
+async def api_candidate_votes(electorate: str):
+    """
+    Get candidate votes for a specific electorate
+    """
+    try:
+        db_path = SQLALCHEMY_DATABASE_URL.replace('sqlite:///', '')
+        logger.info(f"Connecting to database at: {db_path}")
+        
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Get candidates for this electorate
+        cursor.execute("SELECT * FROM candidates WHERE electorate = ? ORDER BY ballot_position", (electorate,))
+        columns = [col[0] for col in cursor.description]
+        candidates = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        
+        # Get results for this electorate
+        cursor.execute("""
+            SELECT id, timestamp, electorate, booth_name, data
+            FROM results 
+            WHERE electorate = ? 
+            ORDER BY timestamp DESC
+        """, (electorate,))
+        
+        columns = ["id", "timestamp", "electorate", "booth_name", "data"]
+        results = []
+        
+        for row in cursor.fetchall():
+            result = dict(zip(columns, row))
+            if result["data"] and isinstance(result["data"], str):
+                try:
+                    result["data"] = json.loads(result["data"])
+                except json.JSONDecodeError:
+                    logger.warning(f"Failed to parse JSON data for result {result['id']}")
+            
+            results.append(result)
+        
+        primary_votes = {}
+        for candidate in candidates:
+            primary_votes[candidate["candidate_name"]] = {"votes": 0, "percentage": 0, "party": candidate["party"]}
+        
+        for result in results:
+            if result["data"] and "primary_votes" in result["data"]:
+                for candidate, votes in result["data"]["primary_votes"].items():
+                    if candidate in primary_votes:
+                        primary_votes[candidate]["votes"] += votes
+        
+        total_primary_votes = sum(candidate_data["votes"] for candidate_data in primary_votes.values())
+        if total_primary_votes > 0:
+            for candidate in primary_votes:
+                primary_votes[candidate]["percentage"] = (primary_votes[candidate]["votes"] / total_primary_votes) * 100
+        
+        primary_votes_array = []
+        for candidate, data in primary_votes.items():
+            primary_votes_array.append({
+                "candidate": candidate,
+                "votes": data["votes"],
+                "percentage": data["percentage"],
+                "party": data["party"]
+            })
+        
+        conn.close()
+        
+        return {
+            "status": "success",
+            "candidates": candidates,
+            "primary_votes": primary_votes_array
+        }
+    except Exception as e:
+        logger.error(f"Error getting candidate votes for electorate {electorate}: {e}")
         logger.error(f"Error type: {type(e).__name__}")
         logger.error(f"Error details: {str(e)}")
         import traceback
