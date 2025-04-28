@@ -465,16 +465,18 @@ async def scan_image(file: UploadFile = File(...)):
         try:
             image_url = f"temp/{file.filename}"
             
+            data_json = json.dumps({
+                "raw_rows": extracted_rows,
+                "primary_votes": tally_data.get("primary_votes"),
+                "two_candidate_preferred": tally_data.get("two_candidate_preferred"),
+                "totals": tally_data.get("totals")
+            })
+            
             db_result = Result(
                 image_url=image_url,
                 electorate=tally_data.get("electorate"),
                 booth_name=tally_data.get("booth_name"),
-                data={
-                    "raw_rows": extracted_rows,
-                    "primary_votes": tally_data.get("primary_votes"),
-                    "two_candidate_preferred": tally_data.get("two_candidate_preferred"),
-                    "totals": tally_data.get("totals")
-                }
+                data=data_json
             )
             db.add(db_result)
             db.commit()
@@ -561,17 +563,19 @@ async def receive_sms(request: Request):
     try:
         image_url = media_urls[0] if media_urls else None
         
+        data_json = json.dumps({
+            "raw_rows": extracted_rows,
+            "primary_votes": tally_data.get("primary_votes"),
+            "two_candidate_preferred": tally_data.get("two_candidate_preferred"),
+            "totals": tally_data.get("totals"),
+            "text": text
+        })
+        
         db_result = Result(
             image_url=image_url,
             electorate=tally_data.get("electorate"),
             booth_name=tally_data.get("booth_name"),
-            data={
-                "raw_rows": extracted_rows,
-                "primary_votes": tally_data.get("primary_votes"),
-                "two_candidate_preferred": tally_data.get("two_candidate_preferred"),
-                "totals": tally_data.get("totals"),
-                "text": text
-            }
+            data=data_json
         )
         db.add(db_result)
         db.commit()

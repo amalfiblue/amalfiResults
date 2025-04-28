@@ -108,13 +108,15 @@ app.config['IS_ADMIN'] = False
 class Result:
     """Plain Python class to replace SQLAlchemy model"""
     
-    def __init__(self, id=None, image_url=None, timestamp=None, electorate=None, booth_name=None, data=None):
+    def __init__(self, id=None, image_url=None, timestamp=None, electorate=None, booth_name=None, data=None, is_reviewed=0, reviewer=None):
         self.id = id
         self.image_url = image_url
         self.timestamp = timestamp
         self.electorate = electorate
         self.booth_name = booth_name
         self.data = data
+        self.is_reviewed = is_reviewed
+        self.reviewer = reviewer
 
     def to_dict(self):
         return {
@@ -123,7 +125,9 @@ class Result:
             'timestamp': self.timestamp.isoformat() if isinstance(self.timestamp, datetime.datetime) else self.timestamp,
             'electorate': self.electorate,
             'booth_name': self.booth_name,
-            'data': self.data
+            'data': self.data,
+            'is_reviewed': self.is_reviewed,
+            'reviewer': self.reviewer
         }
         
     def get_primary_votes(self):
