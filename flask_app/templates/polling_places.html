@@ -346,19 +346,69 @@
     
     // Function to update the polling places table
     function updatePollingPlacesTable(pollingPlaces) {
-        // Specifically target the polling places table's tbody
-        const tableBody = document.querySelector('.card:nth-of-type(1) tbody');
-        if (!tableBody) {
-            console.error("Could not find polling places table body");
+        console.log("Updating polling places table with", pollingPlaces.length, "places");
+        
+        // Get the card body that should contain the table
+        const cardBody = document.querySelector('.col-md-8 .card-body');
+        if (!cardBody) {
+            console.error("Could not find card body for polling places");
             return;
         }
         
-        console.log("Found polling places table body, updating with", pollingPlaces.length, "places");
-        
-        // Clear existing rows
-        tableBody.innerHTML = '';
-        
         if (pollingPlaces && pollingPlaces.length > 0) {
+            // Hide the "no polling places" message
+            const noPollingPlacesMessage = cardBody.querySelector('.alert-info');
+            if (noPollingPlacesMessage) {
+                noPollingPlacesMessage.style.display = 'none';
+            }
+            
+            // Check if table already exists, if not create it
+            let tableContainer = cardBody.querySelector('.table-responsive');
+            if (!tableContainer) {
+                // Create table structure
+                tableContainer = document.createElement('div');
+                tableContainer.className = 'table-responsive';
+                
+                const table = document.createElement('table');
+                table.className = 'table table-striped';
+                
+                const thead = document.createElement('thead');
+                thead.innerHTML = `
+                    <tr>
+                        <th>Electorate</th>
+                        <th>Polling Place</th>
+                        <th>State</th>
+                        <th>Address</th>
+                        <th>Status</th>
+                        <th>Wheelchair Access</th>
+                        <th>Actions</th>
+                    </tr>
+                `;
+                
+                const tbody = document.createElement('tbody');
+                
+                table.appendChild(thead);
+                table.appendChild(tbody);
+                tableContainer.appendChild(table);
+                
+                // Replace the alert with the table
+                if (noPollingPlacesMessage) {
+                    cardBody.replaceChild(tableContainer, noPollingPlacesMessage);
+                } else {
+                    cardBody.appendChild(tableContainer);
+                }
+            }
+            
+            // Now we can safely get the tbody
+            const tableBody = tableContainer.querySelector('tbody');
+            if (!tableBody) {
+                console.error("Could not find or create table body");
+                return;
+            }
+            
+            // Clear existing rows
+            tableBody.innerHTML = '';
+            
             // Add rows for each polling place
             pollingPlaces.forEach(place => {
                 const row = document.createElement('tr');
@@ -379,17 +429,24 @@
                 
                 tableBody.appendChild(row);
             });
-            
-            // Show the table if there are polling places
-            const noPollingPlacesMessage = document.querySelector('.alert-info');
-            if (noPollingPlacesMessage) {
-                noPollingPlacesMessage.style.display = 'none';
-            }
         } else {
             // Show "no polling places found" message
-            const noPollingPlacesMessage = document.querySelector('.alert-info');
-            if (noPollingPlacesMessage) {
+            let noPollingPlacesMessage = cardBody.querySelector('.alert-info');
+            
+            // If the message doesn't exist, create it
+            if (!noPollingPlacesMessage) {
+                noPollingPlacesMessage = document.createElement('div');
+                noPollingPlacesMessage.className = 'alert alert-info';
+                noPollingPlacesMessage.textContent = 'No polling places found for the selected filters. Please try different criteria.';
+                cardBody.appendChild(noPollingPlacesMessage);
+            } else {
                 noPollingPlacesMessage.style.display = 'block';
+            }
+            
+            // Remove table if it exists
+            const tableContainer = cardBody.querySelector('.table-responsive');
+            if (tableContainer) {
+                cardBody.removeChild(tableContainer);
             }
         }
     }
