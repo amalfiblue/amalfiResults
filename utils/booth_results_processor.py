@@ -416,6 +416,129 @@ def calculate_swing(current_result: Dict[str, Any], historical_result: Dict[str,
         logger.error(f"Error calculating swing: {e}")
         return 0.0
 
+def create_polling_places_table() -> None:
+    """Create the polling_places table in the SQLite database if it doesn't exist."""
+    try:
+        logger.info(f"Creating polling_places table in database: {DB_PATH}")
+        db_path_str = str(DB_PATH)
+        logger.info(f"Database path as string: {db_path_str}")
+        conn = sqlite3.connect(db_path_str)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS polling_places (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            state TEXT NOT NULL,
+            division_id INTEGER NOT NULL,
+            division_name TEXT NOT NULL,
+            polling_place_id INTEGER NOT NULL,
+            polling_place_name TEXT NOT NULL,
+            address TEXT,
+            latitude REAL,
+            longitude REAL,
+            data JSON
+        )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        logger.info("Successfully created polling_places table")
+    except Exception as e:
+        logger.error(f"Error creating polling_places table: {e}")
+
+def extract_and_save_polling_places() -> bool:
+    """
+    Extract polling place data from booth_results_2022 and save to polling_places table.
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        logger.info("Extracting polling places from booth_results_2022")
+        db_path_str = str(DB_PATH)
+        conn = sqlite3.connect(db_path_str)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute("DELETE FROM polling_places")
+        
+        # Get unique polling places from booth_results_2022
+        cursor.execute('''
+        SELECT DISTINCT 
+            state, 
+            division_id, 
+            division_name, 
+            polling_place_id, 
+            polling_place_name
+        FROM booth_results_2022
+        ORDER BY division_name, polling_place_name
+        ''')
+        
+        polling_places = [dict(row) for row in cursor.fetchall()]
+        logger.info(f"Found {len(polling_places)} unique polling places")
+        
+        for place in polling_places:
+            cursor.execute('''
+            INSERT INTO polling_places
+            (state, division_id, division_name, polling_place_id, polling_place_name, data)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                place['state'],
+                place['division_id'],
+                place['division_name'],
+                place['polling_place_id'],
+                place['polling_place_name'],
+                json.dumps(place)
+            ))
+        
+        conn.commit()
+        conn.close()
+        logger.info(f"Successfully saved {len(polling_places)} polling places to database")
+        return True
+    except Exception as e:
+        logger.error(f"Error extracting and saving polling places: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return False
+
+def get_polling_places_for_division(division_name: str) -> List[Dict[str, Any]]:
+    """
+    Get polling places for a specific division from the database.
+    
+    Args:
+        division_name: Name of the division/electorate
+        
+    Returns:
+        List of polling place dictionaries
+    """
+    try:
+        logger.info(f"Getting polling places for division: {division_name}")
+        db_path_str = str(DB_PATH)
+        conn = sqlite3.connect(db_path_str)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        SELECT * FROM polling_places 
+        WHERE division_name = ? 
+        ORDER BY polling_place_name
+        ''', (division_name,))
+        
+        rows = cursor.fetchall()
+        polling_places = [dict(row) for row in rows]
+        
+        conn.close()
+        logger.info(f"Found {len(polling_places)} polling places for division {division_name}")
+        return polling_places
+    except Exception as e:
+        logger.error(f"Error getting polling places for division {division_name}: {e}")
+        try:
+            logger.info(f"Falling back to booth_results_2022 for division: {division_name}")
+            return get_booth_results_for_division(division_name)
+        except Exception as fallback_e:
+            logger.error(f"Error in fallback: {fallback_e}")
+            return []
+
 def process_and_load_booth_results() -> bool:
     """
     Process and load booth results from the 2022 federal election.
@@ -428,6 +551,7 @@ def process_and_load_booth_results() -> bool:
         ensure_data_dir()
         
         create_booth_results_table()
+        create_polling_places_table()  # Create the new polling_places table
         
         booth_results_path = DATA_DIR / "HouseTppByPollingPlaceDownload-27966.csv"
         if not booth_results_path.exists():
@@ -447,12 +571,16 @@ def process_and_load_booth_results() -> bool:
             return False
         
         logger.info(f"Saving {len(results)} booth results to database")
-        success = save_booth_results_to_database(results)
+        booth_success = save_booth_results_to_database(results)
+        
+        polling_places_success = extract_and_save_polling_places()
+        
+        success = booth_success and polling_places_success
         
         if success:
-            logger.info("Successfully processed and loaded booth results")
+            logger.info("Successfully processed and loaded booth results and polling places")
         else:
-            logger.error("Failed to save booth results to database")
+            logger.error("Failed to save booth results and/or polling places to database")
             
         return success
     except Exception as e:
