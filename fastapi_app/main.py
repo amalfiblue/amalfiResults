@@ -383,7 +383,9 @@ async def scan_image(file: UploadFile = File(...)):
             # OCR only the cropped table
             logger.info("Running OCR on cropped image...")
             data = pytesseract.image_to_data(
-                cropped_image, output_type=pytesseract.Output.DICT
+                cropped_image,
+                config="--psm 6",
+                output_type=pytesseract.Output.DICT,
             )
             logger.info(f"OCR completed, extracted {len(data['text'])} words")
         except Exception as ocr_err:
