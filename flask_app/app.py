@@ -846,6 +846,8 @@ def admin_upload_image():
         
         if FASTAPI_URL:
             fastapi_urls.append(FASTAPI_URL)
+        
+        fastapi_urls.append("http://results_fastapi_app:8000")
             
         try:
             import socket
@@ -853,6 +855,24 @@ def admin_upload_image():
             fastapi_urls.append(f"http://{ip}:8000")
         except Exception as e:
             app.logger.warning(f"Could not resolve results_fastapi_app via gethostbyname: {e}")
+        
+        try:
+            import socket
+            addrinfo = socket.getaddrinfo('results_fastapi_app', 8000, socket.AF_INET, socket.SOCK_STREAM)
+            if addrinfo:
+                ip = addrinfo[0][4][0]
+                fastapi_urls.append(f"http://{ip}:8000")
+        except Exception as e:
+            app.logger.warning(f"Could not resolve results_fastapi_app via getaddrinfo: {e}")
+        
+        try:
+            import subprocess
+            result = subprocess.run(['getent', 'hosts', 'results_fastapi_app'], capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout:
+                ip = result.stdout.split()[0]
+                fastapi_urls.append(f"http://{ip}:8000")
+        except Exception as e:
+            app.logger.warning(f"Could not resolve results_fastapi_app via getent: {e}")
         
         fastapi_urls.append("http://localhost:8000")
         
