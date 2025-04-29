@@ -11,9 +11,11 @@ services:
       - FLASK_APP=app.py
       - FLASK_ENV=production
       - FASTAPI_URL=http://results_fastapi_app:8000
+      - DATABASE_URL=sqlite:////app/data/results.db
     volumes:
       - ./flask_app:/app
       - ./wait-for-fastapi.sh:/wait-for-fastapi.sh
+      - shared_data:/app/data
     depends_on:
       - results_fastapi_app
     command: ["/wait-for-fastapi.sh", "python", "app.py"]
@@ -30,9 +32,10 @@ services:
       dockerfile: fastapi_app/Dockerfile
     environment:
       - FLASK_APP_URL=http://results_flask_app:5000/api/notify
+      - DATABASE_URL=sqlite:////app/data/results.db
     volumes:
       - ./fastapi_app:/app
-      - fastapi_data:/app/data
+      - shared_data:/app/data
     networks:
       - amalfi_network
     expose:
@@ -43,5 +46,5 @@ networks:
     external: true
 
 volumes:
-  fastapi_data:
+  shared_data:
     driver: local

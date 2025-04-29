@@ -27,6 +27,7 @@ import logging
 from typing import Dict, List, Optional, Any, Tuple
 from pydantic import BaseModel
 from utils.image_processor import ImageProcessor
+from collections import defaultdict
 
 load_dotenv()
 
@@ -44,10 +45,10 @@ app.add_middleware(
 )
 
 is_docker = os.path.exists("/.dockerenv") or os.path.isdir("/app/data")
-data_dir_path = (
-    "/app/data" if is_docker else str(Path(__file__).parent.parent / "flask_app")
+data_dir_path = "/app/data" if is_docker else str(Path(__file__).parent.parent / "data")
+SQLALCHEMY_DATABASE_URL = os.environ.get(
+    "DATABASE_URL", f"sqlite:///{data_dir_path}/results.db"
 )
-SQLALCHEMY_DATABASE_URL = f"sqlite:///{data_dir_path}/results.db"
 logger.info(f"Running in {'Docker' if is_docker else 'local'} environment")
 logger.info(f"Using database path: {data_dir_path}/results.db")
 logger.info(f"Database URL: {SQLALCHEMY_DATABASE_URL}")
@@ -66,12 +67,16 @@ logger.info(
 from utils.booth_results_processor import process_and_load_booth_results
 from utils.candidate_data_loader import process_and_load_candidate_data
 
-process_and_load_booth_results()
-process_and_load_candidate_data()
-
+# Initialize database engine and session
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+# Create database tables
+Base.metadata.create_all(bind=engine)
+
+# Initialize image processor
+image_processor = ImageProcessor()
 
 
 class Result(Base):
@@ -116,9 +121,6 @@ class ResultResponse(BaseModel):
     electorate: Optional[str] = None
     booth_name: Optional[str] = None
     data: Optional[Dict[str, Any]] = None
-
-
-Base.metadata.create_all(bind=engine)
 
 
 def create_candidates_table() -> None:
@@ -175,50 +177,53 @@ import re
 from typing import List, Dict, Any
 
 
-def extract_tally_sheet_data(extracted_rows: List[List[str]]) -> Dict[str, Any]:
+def extract_tally_sheet_data(
+    extracted_rows: List[Dict[str, Any]], booth_name: str
+) -> Dict[str, Any]:
     """
     Extract structured data from tally sheet rows, with cleaned table preview logging.
     """
     result = {
         "electorate": "Warringah",
-        "booth_name": None,
+        "booth_name": booth_name or "Unknown Booth",
         "primary_votes": {},
         "two_candidate_preferred": {},
         "totals": {"formal": None, "informal": None, "total": None},
     }
 
-    table_preview = []  # For logging a cleaned table
+    table_preview = []  # For logging
 
-    # Try to extract booth name from top few rows
-    for row in extracted_rows[:10]:
-        text = " ".join(row)
-        if "BOOTH NAME" in text.upper():
-            match = re.search(r"BOOTH NAME\s*:?\s*(.*)", text, re.IGNORECASE)
-            if match:
-                result["booth_name"] = match.group(1).strip()
-        elif "QUEENSCLIFF" in text.upper() and not result["booth_name"]:
-            result["booth_name"] = "Queenscliff"
+    # Step 1: Group extracted rows into full logical rows
+    row_map = defaultdict(lambda: ["", "", "", ""])  # Assume 4 columns
 
-    # Identify start of candidate table
+    for cell in extracted_rows:
+        row_idx = cell["RowIndex"]
+        col_idx = cell["ColumnIndex"] - 1  # Convert to 0-based index
+        if 0 <= col_idx < 4:
+            row_map[row_idx][col_idx] = cell["Text"].strip()
+
+    # Step 2: Find where candidate rows start
     table_start_idx = None
-    for i, row in enumerate(extracted_rows):
-        text = " ".join(row).upper()
-        if "CANDIDATE" in text and "PRIMARY" in text:
-            table_start_idx = i + 1
+    for idx, row in row_map.items():
+        if any("CANDIDATE" in col.upper() for col in row):
+            table_start_idx = idx + 1  # Data starts after header
             break
 
     if table_start_idx is None:
-        table_start_idx = 0  # fallback
+        table_start_idx = min(row_map.keys())
 
-    # Parse the candidate rows
-    for row in extracted_rows[table_start_idx:]:
+    # Step 3: Parse candidate rows
+    for idx in sorted(row_map.keys()):
+        if idx < table_start_idx:
+            continue
+
+        row = row_map[idx]
         joined = " ".join(row).strip()
         upper = joined.upper()
 
         if not joined or "TOTAL FORMAL" in upper or "TOTAL VOTES" in upper:
             break
 
-        # Log the full raw OCR row
         logger.info(f"Full OCR Row: {repr(row)}")
 
         name_tokens = []
@@ -227,7 +232,7 @@ def extract_tally_sheet_data(extracted_rows: List[List[str]]) -> Dict[str, Any]:
         for token in row:
             clean_token = (
                 token.replace("O", "0").replace("I", "1").replace("l", "1")
-            )  # Normalize OCR errors
+            )  # OCR fixes
             if re.fullmatch(r"\d+", clean_token):
                 numeric_tokens.append(int(clean_token))
             else:
@@ -241,15 +246,15 @@ def extract_tally_sheet_data(extracted_rows: List[List[str]]) -> Dict[str, Any]:
         if not name:
             continue
 
-        # Log parsed candidate and numbers
         logger.info(f"Parsed candidate: {name} | Numbers: {numeric_tokens}")
 
-        # Add to table preview
         table_preview.append([name] + numeric_tokens)
 
+        # Primary votes = first number
         if len(numeric_tokens) >= 1:
             result["primary_votes"][name] = numeric_tokens[0]
 
+        # Two candidate preferred (TCP) votes = next numbers
         if len(numeric_tokens) >= 3:
             result.setdefault("two_candidate_preferred", {}).setdefault("STEGGALL", {})[
                 name
@@ -258,8 +263,8 @@ def extract_tally_sheet_data(extracted_rows: List[List[str]]) -> Dict[str, Any]:
                 name
             ] = numeric_tokens[2]
 
-    # Parse totals from bottom
-    for row in extracted_rows:
+    # Step 4: Parse totals from bottom
+    for idx, row in row_map.items():
         row_text = " ".join(row).upper()
         for field in ["FORMAL", "INFORMAL", "TOTAL"]:
             if field in row_text:
@@ -268,7 +273,7 @@ def extract_tally_sheet_data(extracted_rows: List[List[str]]) -> Dict[str, Any]:
                     key = field.lower()
                     result["totals"][key] = nums[0]
 
-    # Fallbacks if totals were not found
+    # Step 5: Fallbacks
     if result["totals"]["formal"] is None:
         result["totals"]["formal"] = sum(result["primary_votes"].values())
 
@@ -280,10 +285,7 @@ def extract_tally_sheet_data(extracted_rows: List[List[str]]) -> Dict[str, Any]:
             result["totals"]["formal"] + result["totals"]["informal"]
         )
 
-    if not result["booth_name"]:
-        result["booth_name"] = "Unknown Booth"
-
-    # Log the cleaned table preview
+    # Step 6: Log the cleaned table
     logger.info("========== CLEANED TABLE PREVIEW ==========")
     for row in table_preview:
         name = row[0]
@@ -326,10 +328,6 @@ import json
 import io
 
 
-# Initialize the image processor
-image_processor = ImageProcessor()
-
-
 @app.post("/scan-image")
 async def scan_image(file: UploadFile = File(...)):
     """
@@ -343,7 +341,9 @@ async def scan_image(file: UploadFile = File(...)):
         result = await image_processor.process_image(contents, source="upload")
 
         # Now pass extracted_rows to your existing extract_tally_sheet_data function
-        tally_data = extract_tally_sheet_data(result["extracted_rows"])
+        tally_data = extract_tally_sheet_data(
+            result["extracted_rows"], result.get("booth_name", None)
+        )
         logger.info(
             f"Extracted tally data: electorate={tally_data.get('electorate')}, booth={tally_data.get('booth_name')}"
         )
@@ -432,7 +432,9 @@ async def receive_sms(request: Request):
         result = await image_processor.process_sms_image(media_urls[0])
 
         # Extract structured data from the tally sheet
-        tally_data = extract_tally_sheet_data(result["extracted_rows"])
+        tally_data = extract_tally_sheet_data(
+            result["extracted_rows"], result.get("booth_name", None)
+        )
 
         db = SessionLocal()
         try:
@@ -546,20 +548,22 @@ async def load_reference_data():
                     process_and_load_polling_places,
                 )
 
+            # Load candidate data
+            logger.info("Loading candidate data...")
             candidates_result = download_and_process_aec_data()
 
+            # Load booth results
+            logger.info("Loading booth results...")
             booth_results = process_and_load_booth_results()
 
-            # Get the current count of polling places to report in the response
-            import sqlite3
-            from pathlib import Path
-
-            db_path = Path(__file__).parent.parent / "flask_app" / "results.db"
-            conn = sqlite3.connect(str(db_path))
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM polling_places")
-            polling_places_count = cursor.fetchone()[0]
-            conn.close()
+            # Get the current count of polling places
+            logger.info("Getting polling places count...")
+            db = SessionLocal()
+            try:
+                cursor = db.execute("SELECT COUNT(*) FROM polling_places")
+                polling_places_count = cursor.scalar() or 0
+            finally:
+                db.close()
 
             return {
                 "status": "success",

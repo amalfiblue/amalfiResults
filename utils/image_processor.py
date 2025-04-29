@@ -52,9 +52,7 @@ class ImageProcessor:
                 if block["BlockType"] == "TABLE":
                     tables.append(block)
                 if block["BlockType"] == "QUERY_RESULT":
-                    query = block.get("Query", {})
-                    if query.get("Alias") == "BoothName":
-                        booth_name = block.get("Text", "").strip()
+                    booth_name = block.get("Text", "").strip()
 
             logger.info(f"Found {len(tables)} tables.")
             logger.info(f"Extracted booth name: {booth_name}")
