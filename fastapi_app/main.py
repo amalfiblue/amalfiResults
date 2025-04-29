@@ -310,93 +310,179 @@ async def health_check():
     return {"status": "ok"}
 
 
+from fastapi import UploadFile, File, HTTPException
+import io
+import os
+import json
+from PIL import Image
+import pytesseract
+import httpx
+
+
 @app.post("/scan-image")
 async def scan_image(file: UploadFile = File(...)):
     """
-    Upload an image, auto-crop based on detecting 'CANDIDATE', and OCR the cropped table.
+    Scan an uploaded image file, auto-crop to the tally table, extract data, save to DB, notify Flask app.
     """
+    try:
+        logger.info(f"Received image upload: {file.filename}")
+        contents = await file.read()
+        logger.info(f"Read file contents, size: {len(contents)} bytes")
 
-    contents = await file.read()
-    image = Image.open(io.BytesIO(contents)).convert("L")
-    width, height = image.size
+        try:
+            image = Image.open(io.BytesIO(contents)).convert("L")
+            width, height = image.size
+            logger.info(f"Opened image: {width}x{height}")
+        except Exception as img_err:
+            logger.error(f"Error opening image: {img_err}")
+            raise HTTPException(
+                status_code=400, detail=f"Invalid image file: {str(img_err)}"
+            )
 
-    logger.info(f"Original image size: {width}x{height}")
+        # ========== Autocrop based on finding 'CANDIDATE' ==========
+        try:
+            logger.info("Running quick OCR to locate table...")
+            ocr_data = pytesseract.image_to_data(
+                image, output_type=pytesseract.Output.DICT
+            )
 
-    # First quick OCR pass
-    logger.info("Running quick OCR to locate table...")
-    ocr_data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+            crop_top = None
+            for i, text in enumerate(ocr_data["text"]):
+                if "CANDIDATE" in text.upper():
+                    crop_top = ocr_data["top"][i]
+                    logger.info(f"Found 'CANDIDATE' at top={crop_top}")
+                    break
 
-    # Try to find "CANDIDATE" word position
-    crop_top = None
-    for i, text in enumerate(ocr_data["text"]):
-        if "CANDIDATE" in text.upper():
-            crop_top = ocr_data["top"][i]
-            logger.info(f"Found 'CANDIDATE' at top={crop_top}")
-            break
+            if crop_top is None:
+                crop_top = int(height * 0.4)
+                logger.warning(
+                    f"'CANDIDATE' not found, defaulting crop top to {crop_top}"
+                )
 
-    if crop_top is None:
-        # Fallback if "CANDIDATE" is not found
-        crop_top = int(height * 0.4)
-        logger.warning(f"'CANDIDATE' not found, defaulting crop top to {crop_top}")
+            # Define crop box (with small margins)
+            margin_top = 50
+            margin_sides = 50
+            margin_bottom = 100
 
-    # Define crop region (you can fine-tune these margins)
-    margin_top = 50
-    margin_sides = 50
-    margin_bottom = 100
+            crop_box = (
+                margin_sides,
+                max(0, crop_top - margin_top),
+                width - margin_sides,
+                height - margin_bottom,
+            )
 
-    crop_box = (
-        margin_sides,  # left
-        max(0, crop_top - margin_top),  # upper
-        width - margin_sides,  # right
-        height - margin_bottom,  # lower
-    )
+            cropped_image = image.crop(crop_box)
 
-    cropped_image = image.crop(crop_box)
+            # Save debug crop
+            debug_dir = "./debug_crops"
+            os.makedirs(debug_dir, exist_ok=True)
+            debug_path = os.path.join(debug_dir, f"cropped_{file.filename}")
+            cropped_image.save(debug_path)
+            logger.info(f"Saved cropped debug image to {debug_path}")
 
-    # Optional: Save cropped image for debugging
-    debug_dir = "./debug_crops"
-    os.makedirs(debug_dir, exist_ok=True)
-    debug_path = os.path.join(debug_dir, f"cropped_{file.filename}")
-    cropped_image.save(debug_path)
-    logger.info(f"Saved cropped debug image to {debug_path}")
+            # OCR only the cropped table
+            logger.info("Running OCR on cropped image...")
+            data = pytesseract.image_to_data(
+                cropped_image, output_type=pytesseract.Output.DICT
+            )
+            logger.info(f"OCR completed, extracted {len(data['text'])} words")
+        except Exception as ocr_err:
+            logger.error(f"OCR error: {ocr_err}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"OCR failed: {str(ocr_err)}")
 
-    # OCR only the cropped area
-    logger.info("Running OCR on cropped image...")
-    data = pytesseract.image_to_data(cropped_image, output_type=pytesseract.Output.DICT)
+        # ========== Build extracted_rows ==========
+        extracted_rows = []
+        current_row = []
+        last_top = None
 
-    # Now proceed with your usual extracted_rows parsing here...
-    extracted_rows = []
-    current_row = []
-    last_top = None
+        for i, word in enumerate(data["text"]):
+            if word.strip() == "":
+                continue
+            top = data["top"][i]
+            if last_top is None or abs(top - last_top) < 15:
+                current_row.append(word)
+            else:
+                if current_row:
+                    extracted_rows.append(current_row)
+                current_row = [word]
+            last_top = top
 
-    for i, word in enumerate(data["text"]):
-        if word.strip() == "":
-            continue
-        top = data["top"][i]
-        if last_top is None or abs(top - last_top) < 15:
-            current_row.append(word)
-        else:
-            if current_row:
-                extracted_rows.append(current_row)
-            current_row = [word]
-        last_top = top
+        if current_row:
+            extracted_rows.append(current_row)
 
-    if current_row:
-        extracted_rows.append(current_row)
+        logger.info(f"Grouped text into {len(extracted_rows)} rows")
 
-    # Now pass to your extract_tally_sheet_data(extracted_rows)
-    tally_data = extract_tally_sheet_data(extracted_rows)
+        # ========== Extract structured tally data ==========
+        tally_data = extract_tally_sheet_data(extracted_rows)
+        logger.info(
+            f"Extracted tally data: electorate={tally_data.get('electorate')}, booth={tally_data.get('booth_name')}"
+        )
 
-    # (Continue saving result to database and sending to Flask app like you already do.)
+        # ========== Save to database ==========
+        db = SessionLocal()
+        try:
+            image_url = f"temp/{file.filename}"
 
-    return {
-        "status": "success",
-        "electorate": tally_data.get("electorate"),
-        "booth_name": tally_data.get("booth_name"),
-        "primary_votes": tally_data.get("primary_votes"),
-        "two_candidate_preferred": tally_data.get("two_candidate_preferred"),
-        "totals": tally_data.get("totals"),
-    }
+            data_json = json.dumps(
+                {
+                    "raw_rows": extracted_rows,
+                    "primary_votes": tally_data.get("primary_votes"),
+                    "two_candidate_preferred": tally_data.get(
+                        "two_candidate_preferred"
+                    ),
+                    "totals": tally_data.get("totals"),
+                }
+            )
+
+            db_result = Result(
+                image_url=image_url,
+                electorate=tally_data.get("electorate"),
+                booth_name=tally_data.get("booth_name"),
+                data=data_json,
+            )
+            db.add(db_result)
+            db.commit()
+            db.refresh(db_result)
+            logger.info(f"Saved result to database with ID: {db_result.id}")
+
+            # ========== Notify Flask App ==========
+            try:
+                logger.info(f"Notifying Flask app at {FLASK_APP_URL}")
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        FLASK_APP_URL,
+                        json={
+                            "result_id": db_result.id,
+                            "timestamp": db_result.timestamp.isoformat(),
+                            "electorate": tally_data.get("electorate"),
+                            "booth_name": tally_data.get("booth_name"),
+                        },
+                    )
+                    logger.info(
+                        f"Flask app notification response: {response.status_code}"
+                    )
+            except Exception as notify_err:
+                logger.error(f"Failed to notify Flask app: {notify_err}")
+
+            # ========== Return the complete API response ==========
+            return {
+                "status": "success",
+                "result_id": db_result.id,
+                "electorate": tally_data.get("electorate"),
+                "booth_name": tally_data.get("booth_name"),
+                "primary_votes": tally_data.get("primary_votes"),
+                "two_candidate_preferred": tally_data.get("two_candidate_preferred"),
+                "totals": tally_data.get("totals"),
+            }
+
+        finally:
+            db.close()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing image: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/inbound-sms")
