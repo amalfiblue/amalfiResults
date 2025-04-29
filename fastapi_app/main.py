@@ -328,7 +328,7 @@ import io
 @app.post("/scan-image")
 async def scan_image(file: UploadFile = File(...)):
     """
-    Scan uploaded tally sheet image using Amazon Textract, extract table, save to DB.
+    Scan uploaded tally sheet image using Amazon Textract, extract table and booth name via query.
     """
     try:
         logger.info(f"Received image upload: {file.filename}")
@@ -337,36 +337,67 @@ async def scan_image(file: UploadFile = File(...)):
         # Connect to Textract
         textract_client = boto3.client("textract", region_name="ap-southeast-2")
 
-        # Call Textract AnalyzeDocument API
+        # Send image to Textract with TABLES + QUERIES
         logger.info("Sending image to Amazon Textract...")
         response = textract_client.analyze_document(
-            Document={"Bytes": contents}, FeatureTypes=["TABLES", "FORMS"]
+            Document={"Bytes": contents},
+            FeatureTypes=["TABLES", "QUERIES"],
+            QueriesConfig={
+                "Queries": [{"Text": "What is the BOOTH NAME?", "Alias": "BoothName"}]
+            },
         )
         logger.info("Received response from Textract.")
 
-        # Extract table data
-        extracted_rows = []
         blocks_map = {block["Id"]: block for block in response["Blocks"]}
+        tables = []
+        booth_name = None
 
         for block in response["Blocks"]:
             if block["BlockType"] == "TABLE":
-                for relationship in block.get("Relationships", []):
-                    if relationship["Type"] == "CHILD":
-                        row_cells = []
-                        for child_id in relationship["Ids"]:
-                            cell = blocks_map[child_id]
-                            if cell["BlockType"] == "CELL":
-                                text = ""
-                                for rel in cell.get("Relationships", []):
-                                    for grandchild_id in rel["Ids"]:
-                                        word = blocks_map[grandchild_id]
-                                        if word["BlockType"] == "WORD":
-                                            text += word["Text"] + " "
-                                row_cells.append(text.strip())
-                        if row_cells:
-                            extracted_rows.append(row_cells)
+                tables.append(block)
+            if (
+                block["BlockType"] == "QUERY_RESULT"
+                and block["Query"]["Alias"] == "BoothName"
+            ):
+                booth_name = block.get("Text", "").strip()
 
-        logger.info(f"Extracted {len(extracted_rows)} table rows from Textract.")
+        logger.info(f"Found {len(tables)} tables.")
+        logger.info(f"Extracted booth name: {booth_name}")
+
+        # Pick the second table if available
+        if len(tables) >= 2:
+            target_table = tables[1]
+        elif len(tables) == 1:
+            target_table = tables[0]
+        else:
+            raise Exception("No tables found in document.")
+
+        # ====== Extract table cells ======
+        def extract_table(table_block, blocks_map):
+            table_data = []
+            for relationship in table_block.get("Relationships", []):
+                if relationship["Type"] == "CHILD":
+                    for child_id in relationship["Ids"]:
+                        child = blocks_map[child_id]
+                        if child["BlockType"] == "CELL":
+                            text = ""
+                            for rel in child.get("Relationships", []):
+                                for grandchild_id in rel["Ids"]:
+                                    word = blocks_map[grandchild_id]
+                                    if word["BlockType"] == "WORD":
+                                        text += word["Text"] + " "
+                            table_data.append(
+                                {
+                                    "RowIndex": child["RowIndex"],
+                                    "ColumnIndex": child["ColumnIndex"],
+                                    "Text": text.strip(),
+                                }
+                            )
+            return table_data
+
+        extracted_rows = extract_table(target_table, blocks_map)
+
+        logger.info(f"Extracted {len(extracted_rows)} cells from the target table.")
 
         # Now pass extracted_rows to your existing extract_tally_sheet_data function
         tally_data = extract_tally_sheet_data(extracted_rows)
@@ -393,7 +424,8 @@ async def scan_image(file: UploadFile = File(...)):
             db_result = Result(
                 image_url=image_url,
                 electorate=tally_data.get("electorate"),
-                booth_name=tally_data.get("booth_name"),
+                booth_name=booth_name
+                or tally_data.get("booth_name"),  # prefer booth name from query
                 data=data_json,
             )
             db.add(db_result)
@@ -411,7 +443,7 @@ async def scan_image(file: UploadFile = File(...)):
                             "result_id": db_result.id,
                             "timestamp": db_result.timestamp.isoformat(),
                             "electorate": tally_data.get("electorate"),
-                            "booth_name": tally_data.get("booth_name"),
+                            "booth_name": booth_name or tally_data.get("booth_name"),
                         },
                     )
                     logger.info(
@@ -424,7 +456,7 @@ async def scan_image(file: UploadFile = File(...)):
                 "status": "success",
                 "result_id": db_result.id,
                 "electorate": tally_data.get("electorate"),
-                "booth_name": tally_data.get("booth_name"),
+                "booth_name": booth_name or tally_data.get("booth_name"),
                 "primary_votes": tally_data.get("primary_votes"),
                 "two_candidate_preferred": tally_data.get("two_candidate_preferred"),
                 "totals": tally_data.get("totals"),
