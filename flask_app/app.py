@@ -820,6 +820,77 @@ def load_reference_data():
     flash("Reference data loading initiated. Please wait...", "info")
     return redirect(url_for('admin_panel'))
 
+@app.route('/admin/upload-image', methods=['POST'])
+@login_required
+def admin_upload_image():
+    """Upload an image file and send it to FastAPI for processing"""
+    if not current_user.is_admin:
+        flash("Admin access required", "error")
+        return redirect(url_for('index'))
+    
+    if 'image' not in request.files:
+        flash("No image file provided", "error")
+        return redirect(url_for('admin_panel'))
+    
+    image_file = request.files['image']
+    
+    if image_file.filename == '':
+        flash("No image file selected", "error")
+        return redirect(url_for('admin_panel'))
+    
+    try:
+        files = {'file': (image_file.filename, image_file.read(), image_file.content_type)}
+        
+        response = None
+        fastapi_urls = []
+        
+        if FASTAPI_URL:
+            fastapi_urls.append(FASTAPI_URL)
+            
+        try:
+            import socket
+            ip = socket.gethostbyname('results_fastapi_app')
+            fastapi_urls.append(f"http://{ip}:8000")
+        except Exception as e:
+            app.logger.warning(f"Could not resolve results_fastapi_app via gethostbyname: {e}")
+        
+        fastapi_urls.append("http://localhost:8000")
+        
+        seen = set()
+        fastapi_urls = [x for x in fastapi_urls if not (x in seen or seen.add(x))]
+        
+        last_error = None
+        for base_url in fastapi_urls:
+            url = f"{base_url}/scan-image"
+            try:
+                app.logger.info(f"Trying to upload image to FastAPI URL: {url}")
+                response = requests.post(url, files=files, timeout=30)
+                response.raise_for_status()
+                app.logger.info(f"Successfully uploaded image to FastAPI at {base_url}")
+                break
+            except requests.exceptions.RequestException as e:
+                last_error = e
+                app.logger.warning(f"Failed to connect to {base_url}: {e}")
+                continue
+        
+        if response is None or response.status_code != 200:
+            flash(f"Failed to process image: {last_error}", "error")
+            return redirect(url_for('admin_panel'))
+        
+        result_data = response.json()
+        if result_data.get('status') == 'success':
+            result_id = result_data.get('result_id')
+            flash("Image processed successfully!", "success")
+            return redirect(url_for('admin_review_result', result_id=result_id))
+        else:
+            flash(f"Error processing image: {result_data.get('message', 'Unknown error')}", "error")
+            return redirect(url_for('admin_panel'))
+    
+    except Exception as e:
+        app.logger.error(f"Error processing image upload: {e}", exc_info=True)
+        flash(f"Error processing image: {str(e)}", "error")
+        return redirect(url_for('admin_panel'))
+
 @app.route('/api/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE'])
 def api_proxy(path):
     """Proxy all /api/* requests to the FastAPI server"""

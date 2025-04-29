@@ -73,6 +73,26 @@
                             </div>
                         </div>
                     </div>
+                    
+                    <div class="col-md-4">
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">Upload Tally Sheet Image</h5>
+                            </div>
+                            <div class="card-body">
+                                <p>Upload and process a tally sheet image via OCR</p>
+                                <form id="imageUploadForm" action="/admin/upload-image" method="post" enctype="multipart/form-data">
+                                    <div class="mb-3">
+                                        <label for="imageFile" class="form-label">Select Image</label>
+                                        <input class="form-control" type="file" id="imageFile" name="image" accept="image/*" required>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary w-100">
+                                        Upload and Process
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
