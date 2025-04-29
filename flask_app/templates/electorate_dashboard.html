@@ -112,7 +112,15 @@
                         
                         <div class="row mt-4">
                             <div class="col-12">
-                                <h5>Booth Results</h5>
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <h5>Booth Results</h5>
+                                    {% if is_admin %}
+                                    <button type="button" class="btn btn-success" 
+                                        onclick="openManualEntryModal('', '', '{{ selected_electorate }}')">
+                                        Add New Booth Result
+                                    </button>
+                                    {% endif %}
+                                </div>
                                 <div class="table-responsive">
                                     <table class="table table-striped table-hover">
                                         <thead>
@@ -151,6 +159,12 @@
                                                     <a href="/results/{{ result.id }}" class="btn btn-sm btn-primary">
                                                         View
                                                     </a>
+                                                    {% if is_admin %}
+                                                    <button type="button" class="btn btn-sm btn-warning" 
+                                                        onclick="openManualEntryModal('{{ result.id }}', '{{ result.booth_name }}', '{{ selected_electorate }}')">
+                                                        Manual Entry
+                                                    </button>
+                                                    {% endif %}
                                                 </td>
                                             </tr>
                                             {% endfor %}
@@ -167,6 +181,83 @@
                     <p>The dashboard will automatically update as new results come in.</p>
                 </div>
                 {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Manual Entry Modal -->
+    <div class="modal fade" id="manualEntryModal" tabindex="-1" aria-labelledby="manualEntryModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="manualEntryModalLabel">Manual Result Entry</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="manualEntryForm">
+                        <input type="hidden" id="manual-result-id" name="result_id">
+                        <input type="hidden" id="manual-booth-name" name="booth_name">
+                        <input type="hidden" id="manual-electorate" name="electorate">
+                        
+                        <div class="row mb-3">
+                            <div class="col-md-12">
+                                <h5>Booth Information</h5>
+                                <p>Electorate: <span id="display-electorate"></span></p>
+                                <div id="booth-name-display-container">
+                                    <p>Booth Name: <span id="display-booth-name"></span></p>
+                                </div>
+                                <div id="booth-name-input-container" style="display: none;">
+                                    <div class="mb-3">
+                                        <label for="manual-booth-name-input" class="form-label">Booth Name</label>
+                                        <input type="text" class="form-control" id="manual-booth-name-input" required>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row mb-3">
+                            <div class="col-md-12">
+                                <h5>Vote Totals</h5>
+                                <div class="row g-3">
+                                    <div class="col-md-4">
+                                        <label for="formal-votes" class="form-label">Formal Votes</label>
+                                        <input type="number" class="form-control" id="formal-votes" name="formal_votes" required>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label for="informal-votes" class="form-label">Informal Votes</label>
+                                        <input type="number" class="form-control" id="informal-votes" name="informal_votes" required>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label for="total-votes" class="form-label">Total Votes</label>
+                                        <input type="number" class="form-control" id="total-votes" name="total_votes" required>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row mb-3">
+                            <div class="col-md-12">
+                                <h5>Primary Votes</h5>
+                                <div id="primary-votes-container">
+                                    <!-- Candidate inputs will be dynamically added here -->
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row mb-3">
+                            <div class="col-md-12">
+                                <h5>Two-Candidate Preferred</h5>
+                                <div id="tcp-votes-container">
+                                    <!-- TCP inputs will be dynamically added here -->
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="submitManualEntry()">Submit Results</button>
+                </div>
             </div>
         </div>
     </div>
@@ -491,6 +582,10 @@
                     <a href="/results/${result.id}" class="btn btn-sm btn-primary">
                         View
                     </a>
+                    ${isAdmin ? `<button type="button" class="btn btn-sm btn-warning" 
+                        onclick="openManualEntryModal(${result.id}, '${result.booth_name}', '${selected_electorate}')">
+                        Manual Entry
+                    </button>` : ''}
                 </td>
             `;
             boothResultsTable.appendChild(row);
@@ -499,6 +594,240 @@
     
     function pollForUpdates() {
         fetchDashboardData('{{ selected_electorate }}');
+    }
+    
+    // Global variables to store candidates data
+    let electorateCandidates = [];
+    let electorateTcpCandidates = [];
+    let isAdmin = {{ 'true' if is_admin else 'false' }};
+    
+    // Function to open the manual entry modal
+    function openManualEntryModal(resultId, boothName, electorate) {
+        const isNewEntry = !resultId;
+        
+        // Set form values
+        document.getElementById('manual-result-id').value = resultId;
+        document.getElementById('manual-booth-name').value = boothName;
+        document.getElementById('manual-electorate').value = electorate;
+        
+        // Set display values
+        document.getElementById('display-electorate').textContent = electorate;
+        
+        // Show booth name input field for new entries
+        const boothNameInputContainer = document.getElementById('booth-name-input-container');
+        const boothNameDisplayContainer = document.getElementById('booth-name-display-container');
+        
+        if (isNewEntry) {
+            boothNameInputContainer.style.display = 'block';
+            boothNameDisplayContainer.style.display = 'none';
+            document.getElementById('manual-booth-name-input').value = '';
+            document.getElementById('manualEntryModalLabel').textContent = 'Add New Booth Result';
+        } else {
+            boothNameInputContainer.style.display = 'none';
+            boothNameDisplayContainer.style.display = 'block';
+            document.getElementById('display-booth-name').textContent = boothName;
+            document.getElementById('manualEntryModalLabel').textContent = 'Manual Result Entry';
+        }
+        
+        // Clear previous form data
+        document.getElementById('formal-votes').value = '';
+        document.getElementById('informal-votes').value = '';
+        document.getElementById('total-votes').value = '';
+        
+        // Load candidates for this electorate
+        loadCandidatesForManualEntry(electorate);
+        
+        // Show the modal
+        const manualEntryModal = new bootstrap.Modal(document.getElementById('manualEntryModal'));
+        manualEntryModal.show();
+    }
+    
+    // Function to load candidates for the selected electorate
+    function loadCandidatesForManualEntry(electorate) {
+        // Fetch candidates for primary votes
+        fetch(`/api/candidates/${encodeURIComponent(electorate)}`, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                electorateCandidates = data.candidates;
+                populatePrimaryVotesInputs(electorateCandidates);
+            }
+        })
+        .catch(error => {
+            console.error('Error loading candidates:', error);
+        });
+        
+        // Fetch TCP candidates
+        fetch(`/api/tcp-candidates/${encodeURIComponent(electorate)}`, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                electorateTcpCandidates = data.candidates;
+                populateTcpVotesInputs(electorateTcpCandidates);
+            }
+        })
+        .catch(error => {
+            console.error('Error loading TCP candidates:', error);
+        });
+    }
+    
+    // Function to populate primary votes inputs
+    function populatePrimaryVotesInputs(candidates) {
+        const container = document.getElementById('primary-votes-container');
+        container.innerHTML = '';
+        
+        // Create a row for each candidate
+        candidates.forEach((candidate, index) => {
+            const row = document.createElement('div');
+            row.className = 'row mb-2';
+            row.innerHTML = `
+                <div class="col-md-6">
+                    <label class="form-label">${candidate.candidate_name} (${candidate.party})</label>
+                </div>
+                <div class="col-md-6">
+                    <input type="number" class="form-control" 
+                           name="primary_votes_${candidate.id}" 
+                           id="primary_votes_${candidate.id}" 
+                           placeholder="Votes" required>
+                </div>
+            `;
+            container.appendChild(row);
+        });
+    }
+    
+    // Function to populate TCP votes inputs
+    function populateTcpVotesInputs(tcpCandidates) {
+        const container = document.getElementById('tcp-votes-container');
+        container.innerHTML = '';
+        
+        if (tcpCandidates.length < 2) {
+            container.innerHTML = '<div class="alert alert-warning">No TCP candidates defined for this electorate.</div>';
+            return;
+        }
+        
+        // Create TCP vote inputs for each pair of candidates
+        tcpCandidates.forEach((tcpCandidate, tcpIndex) => {
+            const tcpRow = document.createElement('div');
+            tcpRow.className = 'mb-3';
+            tcpRow.innerHTML = `<h6>${tcpCandidate.candidate_name} (${tcpCandidate.party})</h6>`;
+            container.appendChild(tcpRow);
+            
+            electorateCandidates.forEach((candidate, index) => {
+                const row = document.createElement('div');
+                row.className = 'row mb-2';
+                row.innerHTML = `
+                    <div class="col-md-6">
+                        <label class="form-label">${candidate.candidate_name} (${candidate.party})</label>
+                    </div>
+                    <div class="col-md-6">
+                        <input type="number" class="form-control" 
+                               name="tcp_votes_${tcpCandidate.id}_${candidate.id}" 
+                               id="tcp_votes_${tcpCandidate.id}_${candidate.id}" 
+                               placeholder="Preferences to ${tcpCandidate.candidate_name}">
+                    </div>
+                `;
+                container.appendChild(row);
+            });
+        });
+    }
+    
+    // Function to submit manual entry
+    function submitManualEntry() {
+        const form = document.getElementById('manualEntryForm');
+        const formData = new FormData(form);
+        
+        // Prepare data object
+        const resultId = document.getElementById('manual-result-id').value;
+        let boothName = document.getElementById('manual-booth-name').value;
+        const electorate = document.getElementById('manual-electorate').value;
+        
+        // For new entries, get booth name from input field
+        const isNewEntry = !resultId;
+        if (isNewEntry) {
+            boothName = document.getElementById('manual-booth-name-input').value;
+            if (!boothName) {
+                alert('Please enter a booth name');
+                return;
+            }
+        }
+        
+        // Build primary votes data
+        const primaryVotes = {};
+        electorateCandidates.forEach(candidate => {
+            const votes = document.getElementById(`primary_votes_${candidate.id}`).value;
+            if (votes) {
+                primaryVotes[candidate.candidate_name] = parseInt(votes);
+            }
+        });
+        
+        // Build TCP votes data
+        const tcpVotes = {};
+        electorateTcpCandidates.forEach(tcpCandidate => {
+            const tcpCandidateVotes = {};
+            electorateCandidates.forEach(candidate => {
+                const voteInput = document.getElementById(`tcp_votes_${tcpCandidate.id}_${candidate.id}`);
+                if (voteInput && voteInput.value) {
+                    tcpCandidateVotes[candidate.candidate_name] = parseInt(voteInput.value);
+                }
+            });
+            tcpVotes[tcpCandidate.candidate_name] = tcpCandidateVotes;
+        });
+        
+        // Build totals data
+        const totals = {
+            formal: parseInt(document.getElementById('formal-votes').value),
+            informal: parseInt(document.getElementById('informal-votes').value),
+            total: parseInt(document.getElementById('total-votes').value)
+        };
+        
+        // Create final data object
+        const data = {
+            result_id: resultId,
+            booth_name: boothName,
+            electorate: electorate,
+            primary_votes: primaryVotes,
+            two_candidate_preferred: tcpVotes,
+            totals: totals
+        };
+        
+        // Submit data to API
+        fetch('/api/manual-entry', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // Close modal
+                const manualEntryModal = bootstrap.Modal.getInstance(document.getElementById('manualEntryModal'));
+                manualEntryModal.hide();
+                
+                // Show success message
+                alert('Results submitted successfully!');
+                
+                // Refresh dashboard data
+                fetchDashboardData('{{ selected_electorate }}');
+            } else {
+                alert('Error submitting results: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error submitting results:', error);
+            alert('Error submitting results: ' + error.message);
+        });
     }
 </script>
 {% endif %}

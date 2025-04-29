@@ -1547,6 +1547,104 @@ async def api_candidate_votes(electorate: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/manual-entry")
+async def manual_entry(request: Request):
+    """
+    Handle manual entry of booth results when image scanning fails
+    """
+    try:
+        data = await request.json()
+        logger.info(f"Received manual entry request: {data}")
+        
+        result_id = data.get("result_id")
+        booth_name = data.get("booth_name")
+        electorate = data.get("electorate")
+        primary_votes = data.get("primary_votes", {})
+        two_candidate_preferred = data.get("two_candidate_preferred", {})
+        totals = data.get("totals", {})
+        
+        if not booth_name or not electorate:
+            raise HTTPException(status_code=400, detail="Booth name and electorate are required")
+        
+        data_json = json.dumps({
+            "primary_votes": primary_votes,
+            "two_candidate_preferred": two_candidate_preferred,
+            "totals": totals,
+            "manual_entry": True
+        })
+        
+        db = SessionLocal()
+        try:
+            if result_id:
+                existing_result = db.query(Result).filter(Result.id == result_id).first()
+                if existing_result:
+                    existing_result.data = data_json
+                    db.commit()
+                    logger.info(f"Updated existing result with ID: {result_id}")
+                    result_id = existing_result.id
+                else:
+                    # Create new result if ID not found
+                    db_result = Result(
+                        booth_name=booth_name,
+                        electorate=electorate,
+                        data=data_json,
+                        is_reviewed=1,  # Mark as reviewed since manually entered
+                        reviewer="Manual Entry"
+                    )
+                    db.add(db_result)
+                    db.commit()
+                    db.refresh(db_result)
+                    result_id = db_result.id
+                    logger.info(f"Created new result with ID: {result_id}")
+            else:
+                db_result = Result(
+                    booth_name=booth_name,
+                    electorate=electorate,
+                    data=data_json,
+                    is_reviewed=1,  # Mark as reviewed since manually entered
+                    reviewer="Manual Entry"
+                )
+                db.add(db_result)
+                db.commit()
+                db.refresh(db_result)
+                result_id = db_result.id
+                logger.info(f"Created new result with ID: {result_id}")
+                
+            try:
+                async with httpx.AsyncClient() as client:
+                    await client.post(
+                        FLASK_APP_URL,
+                        json={
+                            "result_id": result_id,
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "electorate": electorate,
+                            "booth_name": booth_name,
+                            "action": "manual_entry"
+                        },
+                    )
+                    logger.info(f"Notified Flask app about manual entry for {booth_name}")
+            except Exception as e:
+                logger.error(f"Failed to notify Flask app: {e}")
+            
+            return {
+                "status": "success",
+                "result_id": result_id,
+                "message": "Manual result entry successful"
+            }
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error processing manual entry: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
+        finally:
+            db.close()
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing manual entry: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
 
