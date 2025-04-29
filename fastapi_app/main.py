@@ -319,108 +319,62 @@ import pytesseract
 import httpx
 
 
+from fastapi import UploadFile, File, HTTPException
+import boto3
+import json
+import io
+
+
 @app.post("/scan-image")
 async def scan_image(file: UploadFile = File(...)):
     """
-    Scan an uploaded image file, auto-crop to the tally table, extract data, save to DB, notify Flask app.
+    Scan uploaded tally sheet image using Amazon Textract, extract table, save to DB.
     """
     try:
         logger.info(f"Received image upload: {file.filename}")
         contents = await file.read()
-        logger.info(f"Read file contents, size: {len(contents)} bytes")
 
-        try:
-            image = Image.open(io.BytesIO(contents)).convert("L")
-            width, height = image.size
-            logger.info(f"Opened image: {width}x{height}")
-        except Exception as img_err:
-            logger.error(f"Error opening image: {img_err}")
-            raise HTTPException(
-                status_code=400, detail=f"Invalid image file: {str(img_err)}"
-            )
+        # Connect to Textract
+        textract_client = boto3.client("textract", region_name="ap-southeast-2")
 
-        # ========== Autocrop based on finding 'CANDIDATE' ==========
-        try:
-            logger.info("Running quick OCR to locate table...")
-            ocr_data = pytesseract.image_to_data(
-                image, output_type=pytesseract.Output.DICT
-            )
+        # Call Textract AnalyzeDocument API
+        logger.info("Sending image to Amazon Textract...")
+        response = textract_client.analyze_document(
+            Document={"Bytes": contents}, FeatureTypes=["TABLES", "FORMS"]
+        )
+        logger.info("Received response from Textract.")
 
-            crop_top = None
-            for i, text in enumerate(ocr_data["text"]):
-                if "CANDIDATE" in text.upper():
-                    crop_top = ocr_data["top"][i]
-                    logger.info(f"Found 'CANDIDATE' at top={crop_top}")
-                    break
-
-            if crop_top is None:
-                crop_top = int(height * 0.4)
-                logger.warning(
-                    f"'CANDIDATE' not found, defaulting crop top to {crop_top}"
-                )
-
-            # Define crop box (with small margins)
-            margin_top = 50
-            margin_sides = 50
-            margin_bottom = 100
-
-            crop_box = (
-                margin_sides,
-                max(0, crop_top - margin_top),
-                width - margin_sides,
-                height - margin_bottom,
-            )
-
-            cropped_image = image.crop(crop_box)
-
-            # Save debug crop
-            debug_dir = "./debug_crops"
-            os.makedirs(debug_dir, exist_ok=True)
-            debug_path = os.path.join(debug_dir, f"cropped_{file.filename}")
-            cropped_image.save(debug_path)
-            logger.info(f"Saved cropped debug image to {debug_path}")
-
-            # OCR only the cropped table
-            logger.info("Running OCR on cropped image...")
-            data = pytesseract.image_to_data(
-                cropped_image,
-                config="--psm 6",
-                output_type=pytesseract.Output.DICT,
-            )
-            logger.info(f"OCR completed, extracted {len(data['text'])} words")
-        except Exception as ocr_err:
-            logger.error(f"OCR error: {ocr_err}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"OCR failed: {str(ocr_err)}")
-
-        # ========== Build extracted_rows ==========
+        # Extract table data
         extracted_rows = []
-        current_row = []
-        last_top = None
+        blocks_map = {block["Id"]: block for block in response["Blocks"]}
 
-        for i, word in enumerate(data["text"]):
-            if word.strip() == "":
-                continue
-            top = data["top"][i]
-            if last_top is None or abs(top - last_top) < 15:
-                current_row.append(word)
-            else:
-                if current_row:
-                    extracted_rows.append(current_row)
-                current_row = [word]
-            last_top = top
+        for block in response["Blocks"]:
+            if block["BlockType"] == "TABLE":
+                for relationship in block.get("Relationships", []):
+                    if relationship["Type"] == "CHILD":
+                        row_cells = []
+                        for child_id in relationship["Ids"]:
+                            cell = blocks_map[child_id]
+                            if cell["BlockType"] == "CELL":
+                                text = ""
+                                for rel in cell.get("Relationships", []):
+                                    for grandchild_id in rel["Ids"]:
+                                        word = blocks_map[grandchild_id]
+                                        if word["BlockType"] == "WORD":
+                                            text += word["Text"] + " "
+                                row_cells.append(text.strip())
+                        if row_cells:
+                            extracted_rows.append(row_cells)
 
-        if current_row:
-            extracted_rows.append(current_row)
+        logger.info(f"Extracted {len(extracted_rows)} table rows from Textract.")
 
-        logger.info(f"Grouped text into {len(extracted_rows)} rows")
-
-        # ========== Extract structured tally data ==========
+        # Now pass extracted_rows to your existing extract_tally_sheet_data function
         tally_data = extract_tally_sheet_data(extracted_rows)
         logger.info(
             f"Extracted tally data: electorate={tally_data.get('electorate')}, booth={tally_data.get('booth_name')}"
         )
 
-        # ========== Save to database ==========
+        # Save to database
         db = SessionLocal()
         try:
             image_url = f"temp/{file.filename}"
@@ -447,7 +401,7 @@ async def scan_image(file: UploadFile = File(...)):
             db.refresh(db_result)
             logger.info(f"Saved result to database with ID: {db_result.id}")
 
-            # ========== Notify Flask App ==========
+            # Notify Flask app if needed
             try:
                 logger.info(f"Notifying Flask app at {FLASK_APP_URL}")
                 async with httpx.AsyncClient() as client:
@@ -466,7 +420,6 @@ async def scan_image(file: UploadFile = File(...)):
             except Exception as notify_err:
                 logger.error(f"Failed to notify Flask app: {notify_err}")
 
-            # ========== Return the complete API response ==========
             return {
                 "status": "success",
                 "result_id": db_result.id,
@@ -476,7 +429,6 @@ async def scan_image(file: UploadFile = File(...)):
                 "two_candidate_preferred": tally_data.get("two_candidate_preferred"),
                 "totals": tally_data.get("totals"),
             }
-
         finally:
             db.close()
 
@@ -1557,28 +1509,34 @@ async def manual_entry(request: Request):
     try:
         data = await request.json()
         logger.info(f"Received manual entry request: {data}")
-        
+
         result_id = data.get("result_id")
         booth_name = data.get("booth_name")
         electorate = data.get("electorate")
         primary_votes = data.get("primary_votes", {})
         two_candidate_preferred = data.get("two_candidate_preferred", {})
         totals = data.get("totals", {})
-        
+
         if not booth_name or not electorate:
-            raise HTTPException(status_code=400, detail="Booth name and electorate are required")
-        
-        data_json = json.dumps({
-            "primary_votes": primary_votes,
-            "two_candidate_preferred": two_candidate_preferred,
-            "totals": totals,
-            "manual_entry": True
-        })
-        
+            raise HTTPException(
+                status_code=400, detail="Booth name and electorate are required"
+            )
+
+        data_json = json.dumps(
+            {
+                "primary_votes": primary_votes,
+                "two_candidate_preferred": two_candidate_preferred,
+                "totals": totals,
+                "manual_entry": True,
+            }
+        )
+
         db = SessionLocal()
         try:
             if result_id:
-                existing_result = db.query(Result).filter(Result.id == result_id).first()
+                existing_result = (
+                    db.query(Result).filter(Result.id == result_id).first()
+                )
                 if existing_result:
                     existing_result.data = data_json
                     db.commit()
@@ -1591,7 +1549,7 @@ async def manual_entry(request: Request):
                         electorate=electorate,
                         data=data_json,
                         is_reviewed=1,  # Mark as reviewed since manually entered
-                        reviewer="Manual Entry"
+                        reviewer="Manual Entry",
                     )
                     db.add(db_result)
                     db.commit()
@@ -1604,14 +1562,14 @@ async def manual_entry(request: Request):
                     electorate=electorate,
                     data=data_json,
                     is_reviewed=1,  # Mark as reviewed since manually entered
-                    reviewer="Manual Entry"
+                    reviewer="Manual Entry",
                 )
                 db.add(db_result)
                 db.commit()
                 db.refresh(db_result)
                 result_id = db_result.id
                 logger.info(f"Created new result with ID: {result_id}")
-                
+
             try:
                 async with httpx.AsyncClient() as client:
                     await client.post(
@@ -1621,17 +1579,19 @@ async def manual_entry(request: Request):
                             "timestamp": datetime.utcnow().isoformat(),
                             "electorate": electorate,
                             "booth_name": booth_name,
-                            "action": "manual_entry"
+                            "action": "manual_entry",
                         },
                     )
-                    logger.info(f"Notified Flask app about manual entry for {booth_name}")
+                    logger.info(
+                        f"Notified Flask app about manual entry for {booth_name}"
+                    )
             except Exception as e:
                 logger.error(f"Failed to notify Flask app: {e}")
-            
+
             return {
                 "status": "success",
                 "result_id": result_id,
-                "message": "Manual result entry successful"
+                "message": "Manual result entry successful",
             }
         except Exception as e:
             db.rollback()
@@ -1639,7 +1599,7 @@ async def manual_entry(request: Request):
             raise HTTPException(status_code=500, detail=str(e))
         finally:
             db.close()
-    
+
     except HTTPException:
         raise
     except Exception as e:
