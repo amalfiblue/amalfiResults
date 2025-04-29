@@ -208,8 +208,11 @@
                                 </div>
                                 <div id="booth-name-input-container" style="display: none;">
                                     <div class="mb-3">
-                                        <label for="manual-booth-name-input" class="form-label">Booth Name</label>
-                                        <input type="text" class="form-control" id="manual-booth-name-input" required>
+                                        <label for="booth-dropdown" class="form-label">Select Booth</label>
+                                        <select class="form-select" id="booth-dropdown" required>
+                                            <option value="">Select a booth...</option>
+                                            <!-- Polling places will be loaded here -->
+                                        </select>
                                     </div>
                                 </div>
                             </div>
@@ -221,34 +224,61 @@
                                 <div class="row g-3">
                                     <div class="col-md-4">
                                         <label for="formal-votes" class="form-label">Formal Votes</label>
-                                        <input type="number" class="form-control" id="formal-votes" name="formal_votes" required>
+                                        <input type="number" class="form-control" id="formal-votes" name="formal_votes" required onchange="validateTotals()">
                                     </div>
                                     <div class="col-md-4">
                                         <label for="informal-votes" class="form-label">Informal Votes</label>
-                                        <input type="number" class="form-control" id="informal-votes" name="informal_votes" required>
+                                        <input type="number" class="form-control" id="informal-votes" name="informal_votes" required onchange="validateTotals()">
                                     </div>
                                     <div class="col-md-4">
                                         <label for="total-votes" class="form-label">Total Votes</label>
-                                        <input type="number" class="form-control" id="total-votes" name="total_votes" required>
+                                        <input type="number" class="form-control" id="total-votes" name="total_votes" required onchange="validateTotals()">
                                     </div>
                                 </div>
+                                <div id="total-validation-message" class="mt-2" style="display: none;"></div>
                             </div>
                         </div>
                         
                         <div class="row mb-3">
                             <div class="col-md-12">
-                                <h5>Primary Votes</h5>
-                                <div id="primary-votes-container">
-                                    <!-- Candidate inputs will be dynamically added here -->
+                                <h5>Votes by Candidate</h5>
+                                <div class="table-responsive">
+                                    <table class="table table-bordered">
+                                        <thead>
+                                            <tr>
+                                                <th>Candidate</th>
+                                                <th>Primary Votes</th>
+                                                <th>TCP 1</th>
+                                                <th>TCP 2</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="candidate-votes-table">
+                                            <!-- Candidate rows will be dynamically added here -->
+                                        </tbody>
+                                    </table>
                                 </div>
+                                <div id="primary-votes-validation-message" class="mt-2" style="display: none;"></div>
                             </div>
                         </div>
                         
                         <div class="row mb-3">
                             <div class="col-md-12">
-                                <h5>Two-Candidate Preferred</h5>
-                                <div id="tcp-votes-container">
-                                    <!-- TCP inputs will be dynamically added here -->
+                                <h5>TCP Summary</h5>
+                                <div class="table-responsive">
+                                    <table class="table table-bordered">
+                                        <thead>
+                                            <tr>
+                                                <th>TCP Candidate</th>
+                                                <th>Primary Votes</th>
+                                                <th>Preference Votes</th>
+                                                <th>Total Votes</th>
+                                                <th>Percentage</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="tcp-summary-table">
+                                            <!-- TCP summary will be dynamically added here -->
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
                         </div>
@@ -256,7 +286,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" onclick="submitManualEntry()">Submit Results</button>
+                    <button type="button" class="btn btn-primary" id="submit-button" onclick="submitManualEntry()">Submit Results</button>
                 </div>
             </div>
         </div>
@@ -620,8 +650,10 @@
         if (isNewEntry) {
             boothNameInputContainer.style.display = 'block';
             boothNameDisplayContainer.style.display = 'none';
-            document.getElementById('manual-booth-name-input').value = '';
             document.getElementById('manualEntryModalLabel').textContent = 'Add New Booth Result';
+            
+            // Load polling places for dropdown
+            loadPollingPlacesForElectorate(electorate);
         } else {
             boothNameInputContainer.style.display = 'none';
             boothNameDisplayContainer.style.display = 'block';
@@ -634,12 +666,43 @@
         document.getElementById('informal-votes').value = '';
         document.getElementById('total-votes').value = '';
         
+        // Clear validation messages
+        document.getElementById('total-validation-message').style.display = 'none';
+        document.getElementById('primary-votes-validation-message').style.display = 'none';
+        
         // Load candidates for this electorate
         loadCandidatesForManualEntry(electorate);
         
         // Show the modal
         const manualEntryModal = new bootstrap.Modal(document.getElementById('manualEntryModal'));
         manualEntryModal.show();
+    }
+    
+    // Function to load polling places for the selected electorate
+    function loadPollingPlacesForElectorate(electorate) {
+        fetch(`/api/admin/polling-places/${encodeURIComponent(electorate)}`, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                const dropdown = document.getElementById('booth-dropdown');
+                dropdown.innerHTML = '<option value="">Select a booth...</option>';
+                
+                data.booth_results.forEach(place => {
+                    const option = document.createElement('option');
+                    option.value = place.polling_place_name;
+                    option.textContent = place.polling_place_name;
+                    dropdown.appendChild(option);
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error loading polling places:', error);
+        });
     }
     
     // Function to load candidates for the selected electorate
@@ -655,108 +718,217 @@
         .then(data => {
             if (data.status === 'success') {
                 electorateCandidates = data.candidates;
-                populatePrimaryVotesInputs(electorateCandidates);
+                
+                // Fetch TCP candidates after getting primary candidates
+                fetch(`/api/tcp-candidates/${encodeURIComponent(electorate)}`, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                    }
+                })
+                .then(response => response.json())
+                .then(tcpData => {
+                    if (tcpData.status === 'success') {
+                        electorateTcpCandidates = tcpData.candidates;
+                        populateCandidateVotesTable(electorateCandidates, electorateTcpCandidates);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading TCP candidates:', error);
+                });
             }
         })
         .catch(error => {
             console.error('Error loading candidates:', error);
         });
-        
-        // Fetch TCP candidates
-        fetch(`/api/tcp-candidates/${encodeURIComponent(electorate)}`, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json',
-            }
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                electorateTcpCandidates = data.candidates;
-                populateTcpVotesInputs(electorateTcpCandidates);
-            }
-        })
-        .catch(error => {
-            console.error('Error loading TCP candidates:', error);
-        });
     }
     
-    // Function to populate primary votes inputs
-    function populatePrimaryVotesInputs(candidates) {
-        const container = document.getElementById('primary-votes-container');
-        container.innerHTML = '';
+    // Function to populate candidate votes table with primary and TCP votes
+    function populateCandidateVotesTable(candidates, tcpCandidates) {
+        const tableBody = document.getElementById('candidate-votes-table');
+        tableBody.innerHTML = '';
+        
+        // Check if we have TCP candidates
+        const hasTcp = tcpCandidates && tcpCandidates.length >= 2;
+        const tcp1 = hasTcp ? tcpCandidates[0] : null;
+        const tcp2 = hasTcp ? tcpCandidates[1] : null;
         
         // Create a row for each candidate
         candidates.forEach((candidate, index) => {
-            const row = document.createElement('div');
-            row.className = 'row mb-2';
-            row.innerHTML = `
-                <div class="col-md-6">
-                    <label class="form-label">${candidate.candidate_name} (${candidate.party})</label>
-                </div>
-                <div class="col-md-6">
-                    <input type="number" class="form-control" 
+            const row = document.createElement('tr');
+            
+            let rowHtml = `
+                <td>${candidate.candidate_name} (${candidate.party})</td>
+                <td>
+                    <input type="number" class="form-control primary-vote-input" 
                            name="primary_votes_${candidate.id}" 
                            id="primary_votes_${candidate.id}" 
-                           placeholder="Votes" required>
-                </div>
+                           placeholder="Votes" required onchange="validatePrimaryVotes()">
+                </td>
             `;
-            container.appendChild(row);
+            
+            // Add TCP columns if we have TCP candidates
+            if (hasTcp) {
+                rowHtml += `
+                    <td>
+                        <input type="number" class="form-control" 
+                               name="tcp_votes_${tcp1.id}_${candidate.id}" 
+                               id="tcp_votes_${tcp1.id}_${candidate.id}" 
+                               placeholder="Preferences to ${tcp1.candidate_name}" onchange="updateTcpSummary()">
+                    </td>
+                    <td>
+                        <input type="number" class="form-control" 
+                               name="tcp_votes_${tcp2.id}_${candidate.id}" 
+                               id="tcp_votes_${tcp2.id}_${candidate.id}" 
+                               placeholder="Preferences to ${tcp2.candidate_name}" onchange="updateTcpSummary()">
+                    </td>
+                `;
+            } else {
+                rowHtml += `
+                    <td colspan="2" class="text-center">
+                        <div class="alert alert-warning py-1 mb-0">No TCP candidates defined</div>
+                    </td>
+                `;
+            }
+            
+            row.innerHTML = rowHtml;
+            tableBody.appendChild(row);
         });
+        
+        // Initialize TCP summary table
+        updateTcpSummary();
     }
     
-    // Function to populate TCP votes inputs
-    function populateTcpVotesInputs(tcpCandidates) {
-        const container = document.getElementById('tcp-votes-container');
-        container.innerHTML = '';
+    // Function to validate total votes
+    function validateTotals() {
+        const formalVotes = parseInt(document.getElementById('formal-votes').value) || 0;
+        const informalVotes = parseInt(document.getElementById('informal-votes').value) || 0;
+        const totalVotes = parseInt(document.getElementById('total-votes').value) || 0;
         
-        if (tcpCandidates.length < 2) {
-            container.innerHTML = '<div class="alert alert-warning">No TCP candidates defined for this electorate.</div>';
+        const calculatedTotal = formalVotes + informalVotes;
+        const validationMessage = document.getElementById('total-validation-message');
+        const submitButton = document.getElementById('submit-button');
+        
+        if (totalVotes === 0 || isNaN(totalVotes)) {
+            validationMessage.style.display = 'none';
+            return true;
+        }
+        
+        if (calculatedTotal !== totalVotes) {
+            validationMessage.innerHTML = `<div class="alert alert-danger">Total votes (${totalVotes}) must equal formal votes (${formalVotes}) plus informal votes (${informalVotes}) = ${calculatedTotal}</div>`;
+            validationMessage.style.display = 'block';
+            submitButton.disabled = true;
+            return false;
+        } else {
+            validationMessage.innerHTML = `<div class="alert alert-success">Total votes validation passed: ${calculatedTotal} = ${formalVotes} + ${informalVotes}</div>`;
+            validationMessage.style.display = 'block';
+            submitButton.disabled = false;
+            return true;
+        }
+    }
+    
+    // Function to validate primary votes
+    function validatePrimaryVotes() {
+        const formalVotes = parseInt(document.getElementById('formal-votes').value) || 0;
+        const primaryInputs = document.querySelectorAll('.primary-vote-input');
+        let primaryTotal = 0;
+        
+        primaryInputs.forEach(input => {
+            primaryTotal += parseInt(input.value) || 0;
+        });
+        
+        const validationMessage = document.getElementById('primary-votes-validation-message');
+        const submitButton = document.getElementById('submit-button');
+        
+        if (formalVotes === 0 || isNaN(formalVotes)) {
+            validationMessage.style.display = 'none';
+            return true;
+        }
+        
+        if (primaryTotal !== formalVotes) {
+            validationMessage.innerHTML = `<div class="alert alert-danger">Sum of primary votes (${primaryTotal}) must equal formal votes (${formalVotes})</div>`;
+            validationMessage.style.display = 'block';
+            submitButton.disabled = true;
+            return false;
+        } else {
+            validationMessage.innerHTML = `<div class="alert alert-success">Primary votes validation passed: ${primaryTotal} = ${formalVotes}</div>`;
+            validationMessage.style.display = 'block';
+            submitButton.disabled = false;
+            return true;
+        }
+        
+        // Update TCP summary after primary votes change
+        updateTcpSummary();
+    }
+    
+    // Function to update TCP summary
+    function updateTcpSummary() {
+        const tcpSummaryTable = document.getElementById('tcp-summary-table');
+        tcpSummaryTable.innerHTML = '';
+        
+        // Check if we have TCP candidates
+        if (!electorateTcpCandidates || electorateTcpCandidates.length < 2) {
+            tcpSummaryTable.innerHTML = '<tr><td colspan="5" class="text-center"><div class="alert alert-warning py-1 mb-0">No TCP candidates defined</div></td></tr>';
             return;
         }
         
-        // Create TCP vote inputs for each pair of candidates
-        tcpCandidates.forEach((tcpCandidate, tcpIndex) => {
-            const tcpRow = document.createElement('div');
-            tcpRow.className = 'mb-3';
-            tcpRow.innerHTML = `<h6>${tcpCandidate.candidate_name} (${tcpCandidate.party})</h6>`;
-            container.appendChild(tcpRow);
-            
-            electorateCandidates.forEach((candidate, index) => {
-                const row = document.createElement('div');
-                row.className = 'row mb-2';
-                row.innerHTML = `
-                    <div class="col-md-6">
-                        <label class="form-label">${candidate.candidate_name} (${candidate.party})</label>
-                    </div>
-                    <div class="col-md-6">
-                        <input type="number" class="form-control" 
-                               name="tcp_votes_${tcpCandidate.id}_${candidate.id}" 
-                               id="tcp_votes_${tcpCandidate.id}_${candidate.id}" 
-                               placeholder="Preferences to ${tcpCandidate.candidate_name}">
-                    </div>
-                `;
-                container.appendChild(row);
+        const formalVotes = parseInt(document.getElementById('formal-votes').value) || 0;
+        
+        // Calculate TCP summary for each TCP candidate
+        electorateTcpCandidates.forEach(tcpCandidate => {
+            // Get primary votes for this TCP candidate
+            let primaryVotes = 0;
+            electorateCandidates.forEach(candidate => {
+                if (candidate.candidate_name === tcpCandidate.candidate_name) {
+                    primaryVotes = parseInt(document.getElementById(`primary_votes_${candidate.id}`).value) || 0;
+                }
             });
+            
+            // Get preference votes for this TCP candidate
+            let preferenceVotes = 0;
+            electorateCandidates.forEach(candidate => {
+                if (candidate.candidate_name !== tcpCandidate.candidate_name) {
+                    const tcpVotes = parseInt(document.getElementById(`tcp_votes_${tcpCandidate.id}_${candidate.id}`).value) || 0;
+                    preferenceVotes += tcpVotes;
+                }
+            });
+            
+            // Calculate total and percentage
+            const totalVotes = primaryVotes + preferenceVotes;
+            const percentage = formalVotes > 0 ? ((totalVotes / formalVotes) * 100).toFixed(2) : '0.00';
+            
+            // Create row
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${tcpCandidate.candidate_name} (${tcpCandidate.party})</td>
+                <td>${primaryVotes}</td>
+                <td>${preferenceVotes}</td>
+                <td>${totalVotes}</td>
+                <td>${percentage}%</td>
+            `;
+            tcpSummaryTable.appendChild(row);
         });
     }
     
     // Function to submit manual entry
     function submitManualEntry() {
-        const form = document.getElementById('manualEntryForm');
-        const formData = new FormData(form);
+        // Validate totals before submission
+        if (!validateTotals() || !validatePrimaryVotes()) {
+            alert('Please correct the validation errors before submitting');
+            return;
+        }
         
         // Prepare data object
         const resultId = document.getElementById('manual-result-id').value;
         let boothName = document.getElementById('manual-booth-name').value;
         const electorate = document.getElementById('manual-electorate').value;
         
-        // For new entries, get booth name from input field
+        // For new entries, get booth name from dropdown
         const isNewEntry = !resultId;
         if (isNewEntry) {
-            boothName = document.getElementById('manual-booth-name-input').value;
+            boothName = document.getElementById('booth-dropdown').value;
             if (!boothName) {
-                alert('Please enter a booth name');
+                alert('Please select a booth from the dropdown');
                 return;
             }
         }
@@ -785,9 +957,9 @@
         
         // Build totals data
         const totals = {
-            formal: parseInt(document.getElementById('formal-votes').value),
-            informal: parseInt(document.getElementById('informal-votes').value),
-            total: parseInt(document.getElementById('total-votes').value)
+            formal: parseInt(document.getElementById('formal-votes').value) || 0,
+            informal: parseInt(document.getElementById('informal-votes').value) || 0,
+            total: parseInt(document.getElementById('total-votes').value) || 0
         };
         
         // Create final data object
