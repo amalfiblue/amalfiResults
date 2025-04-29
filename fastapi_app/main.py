@@ -26,6 +26,7 @@ from dotenv import load_dotenv
 import logging
 from typing import Dict, List, Optional, Any, Tuple
 from pydantic import BaseModel
+from utils.image_processor import ImageProcessor
 
 load_dotenv()
 
@@ -325,6 +326,10 @@ import json
 import io
 
 
+# Initialize the image processor
+image_processor = ImageProcessor()
+
+
 @app.post("/scan-image")
 async def scan_image(file: UploadFile = File(...)):
     """
@@ -334,73 +339,11 @@ async def scan_image(file: UploadFile = File(...)):
         logger.info(f"Received image upload: {file.filename}")
         contents = await file.read()
 
-        # Connect to Textract
-        textract_client = boto3.client("textract", region_name="ap-southeast-2")
-
-        # Send image to Textract with TABLES + QUERIES
-        logger.info("Sending image to Amazon Textract...")
-        response = textract_client.analyze_document(
-            Document={"Bytes": contents},
-            FeatureTypes=["TABLES", "QUERIES"],
-            QueriesConfig={
-                "Queries": [{"Text": "What is the BOOTH NAME?", "Alias": "BoothName"}]
-            },
-        )
-        logger.info("Received response from Textract.")
-
-        blocks_map = {block["Id"]: block for block in response["Blocks"]}
-        tables = []
-        booth_name = None
-
-        for block in response["Blocks"]:
-            if block["BlockType"] == "TABLE":
-                tables.append(block)
-            if (
-                block["BlockType"] == "QUERY_RESULT"
-                and block["Query"]["Alias"] == "BoothName"
-            ):
-                booth_name = block.get("Text", "").strip()
-
-        logger.info(f"Found {len(tables)} tables.")
-        logger.info(f"Extracted booth name: {booth_name}")
-
-        # Pick the second table if available
-        if len(tables) >= 2:
-            target_table = tables[1]
-        elif len(tables) == 1:
-            target_table = tables[0]
-        else:
-            raise Exception("No tables found in document.")
-
-        # ====== Extract table cells ======
-        def extract_table(table_block, blocks_map):
-            table_data = []
-            for relationship in table_block.get("Relationships", []):
-                if relationship["Type"] == "CHILD":
-                    for child_id in relationship["Ids"]:
-                        child = blocks_map[child_id]
-                        if child["BlockType"] == "CELL":
-                            text = ""
-                            for rel in child.get("Relationships", []):
-                                for grandchild_id in rel["Ids"]:
-                                    word = blocks_map[grandchild_id]
-                                    if word["BlockType"] == "WORD":
-                                        text += word["Text"] + " "
-                            table_data.append(
-                                {
-                                    "RowIndex": child["RowIndex"],
-                                    "ColumnIndex": child["ColumnIndex"],
-                                    "Text": text.strip(),
-                                }
-                            )
-            return table_data
-
-        extracted_rows = extract_table(target_table, blocks_map)
-
-        logger.info(f"Extracted {len(extracted_rows)} cells from the target table.")
+        # Process the image using the shared processor
+        result = await image_processor.process_image(contents, source="upload")
 
         # Now pass extracted_rows to your existing extract_tally_sheet_data function
-        tally_data = extract_tally_sheet_data(extracted_rows)
+        tally_data = extract_tally_sheet_data(result["extracted_rows"])
         logger.info(
             f"Extracted tally data: electorate={tally_data.get('electorate')}, booth={tally_data.get('booth_name')}"
         )
@@ -412,7 +355,7 @@ async def scan_image(file: UploadFile = File(...)):
 
             data_json = json.dumps(
                 {
-                    "raw_rows": extracted_rows,
+                    "raw_rows": result["extracted_rows"],
                     "primary_votes": tally_data.get("primary_votes"),
                     "two_candidate_preferred": tally_data.get(
                         "two_candidate_preferred"
@@ -424,7 +367,7 @@ async def scan_image(file: UploadFile = File(...)):
             db_result = Result(
                 image_url=image_url,
                 electorate=tally_data.get("electorate"),
-                booth_name=booth_name
+                booth_name=result["booth_name"]
                 or tally_data.get("booth_name"),  # prefer booth name from query
                 data=data_json,
             )
@@ -443,7 +386,8 @@ async def scan_image(file: UploadFile = File(...)):
                             "result_id": db_result.id,
                             "timestamp": db_result.timestamp.isoformat(),
                             "electorate": tally_data.get("electorate"),
-                            "booth_name": booth_name or tally_data.get("booth_name"),
+                            "booth_name": result["booth_name"]
+                            or tally_data.get("booth_name"),
                         },
                     )
                     logger.info(
@@ -456,7 +400,7 @@ async def scan_image(file: UploadFile = File(...)):
                 "status": "success",
                 "result_id": db_result.id,
                 "electorate": tally_data.get("electorate"),
-                "booth_name": booth_name or tally_data.get("booth_name"),
+                "booth_name": result["booth_name"] or tally_data.get("booth_name"),
                 "primary_votes": tally_data.get("primary_votes"),
                 "two_candidate_preferred": tally_data.get("two_candidate_preferred"),
                 "totals": tally_data.get("totals"),
@@ -476,92 +420,84 @@ async def receive_sms(request: Request):
     """
     Process SMS with attached media for tally sheet scanning
     """
-    payload = await request.json()
-
-    text = payload.get("body")
-    media_urls = payload.get("media", [])
-
-    extracted_rows = []
-
-    for media_url in media_urls:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(media_url)
-            image_data = response.content
-
-        image = Image.open(io.BytesIO(image_data)).convert("L")  # Convert to grayscale
-
-        data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
-
-        current_row = []
-        last_top = None
-
-        for i, word in enumerate(data["text"]):
-            if word.strip() == "":
-                continue
-            top = data["top"][i]
-            if last_top is None or abs(top - last_top) < 15:
-                current_row.append(word)
-            else:
-                if current_row:
-                    extracted_rows.append(current_row)
-                current_row = [word]
-            last_top = top
-
-        if current_row:
-            extracted_rows.append(current_row)
-
-    # Extract structured data from the tally sheet
-    tally_data = extract_tally_sheet_data(extracted_rows)
-
-    db = SessionLocal()
     try:
-        image_url = media_urls[0] if media_urls else None
+        payload = await request.json()
+        text = payload.get("body")
+        media_urls = payload.get("media", [])
 
-        data_json = json.dumps(
-            {
-                "raw_rows": extracted_rows,
+        if not media_urls:
+            raise HTTPException(status_code=400, detail="No media attached to SMS")
+
+        # Process the first image (assuming it's the tally sheet)
+        result = await image_processor.process_sms_image(media_urls[0])
+
+        # Extract structured data from the tally sheet
+        tally_data = extract_tally_sheet_data(result["extracted_rows"])
+
+        db = SessionLocal()
+        try:
+            image_url = media_urls[0]
+
+            data_json = json.dumps(
+                {
+                    "raw_rows": result["extracted_rows"],
+                    "primary_votes": tally_data.get("primary_votes"),
+                    "two_candidate_preferred": tally_data.get(
+                        "two_candidate_preferred"
+                    ),
+                    "totals": tally_data.get("totals"),
+                    "text": text,
+                }
+            )
+
+            db_result = Result(
+                image_url=image_url,
+                electorate=tally_data.get("electorate"),
+                booth_name=result["booth_name"] or tally_data.get("booth_name"),
+                data=data_json,
+            )
+            db.add(db_result)
+            db.commit()
+            db.refresh(db_result)
+            logger.info(f"Saved SMS result to database with ID: {db_result.id}")
+
+            # Notify Flask app
+            try:
+                logger.info(f"Notifying Flask app at {FLASK_APP_URL}")
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        FLASK_APP_URL,
+                        json={
+                            "result_id": db_result.id,
+                            "timestamp": db_result.timestamp.isoformat(),
+                            "electorate": tally_data.get("electorate"),
+                            "booth_name": result["booth_name"]
+                            or tally_data.get("booth_name"),
+                        },
+                    )
+                    logger.info(
+                        f"Flask app notification response: {response.status_code}"
+                    )
+            except Exception as notify_err:
+                logger.error(f"Failed to notify Flask app: {notify_err}")
+
+            return {
+                "status": "success",
+                "result_id": db_result.id,
+                "electorate": tally_data.get("electorate"),
+                "booth_name": result["booth_name"] or tally_data.get("booth_name"),
                 "primary_votes": tally_data.get("primary_votes"),
                 "two_candidate_preferred": tally_data.get("two_candidate_preferred"),
                 "totals": tally_data.get("totals"),
-                "text": text,
             }
-        )
+        finally:
+            db.close()
 
-        db_result = Result(
-            image_url=image_url,
-            electorate=tally_data.get("electorate"),
-            booth_name=tally_data.get("booth_name"),
-            data=data_json,
-        )
-        db.add(db_result)
-        db.commit()
-        db.refresh(db_result)
-
-        try:
-            async with httpx.AsyncClient() as client:
-                await client.post(
-                    FLASK_APP_URL,
-                    json={
-                        "result_id": db_result.id,
-                        "timestamp": db_result.timestamp.isoformat(),
-                        "electorate": tally_data.get("electorate"),
-                        "booth_name": tally_data.get("booth_name"),
-                    },
-                )
-        except Exception as e:
-            logger.error(f"Failed to notify Flask app: {e}")
-
-        return {
-            "status": "received",
-            "result_id": db_result.id,
-            "electorate": tally_data.get("electorate"),
-            "booth_name": tally_data.get("booth_name"),
-            "primary_votes": tally_data.get("primary_votes"),
-            "two_candidate_preferred": tally_data.get("two_candidate_preferred"),
-            "totals": tally_data.get("totals"),
-        }
-    finally:
-        db.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing SMS: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/admin/load-reference-data")
