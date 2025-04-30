@@ -43,7 +43,7 @@
                         <a href="/admin/tcp-candidates" class="btn btn-warning mb-2 w-100">
                             Set TCP Candidates
                         </a>
-                        <a href="/admin/panel/{{ selected_electorate|urlencode }}" class="btn btn-primary mb-2 w-100">
+                        <a href="/admin/panel" class="btn btn-primary mb-2 w-100">
                             Admin Panel
                         </a>
                     </div>
@@ -52,68 +52,19 @@
             </div>
             
             <div class="col-md-9">
-                {% if selected_electorate %}
                 <div class="card mb-4">
                     <div class="card-header d-flex justify-content-between align-items-center">
-                        <h4 class="mb-0">{{ selected_electorate }} Results</h4>
+                        <h4 class="mb-0" id="electorate-title">Select an Electorate</h4>
                         <div>
                             <span class="badge bg-success" id="booths-reporting">
-                                {{ booth_counts.get(selected_electorate, 0) }} of {{ total_booths.get(selected_electorate, 0) }} Booths Reporting
+                                Loading...
                             </span>
                             <span class="badge bg-info ms-2" id="last-updated">
-                                Last Updated: <span id="update-time">{{ last_updated }}</span>
+                                Last Updated: <span id="update-time">Loading...</span>
                             </span>
                         </div>
                     </div>
                     <div class="card-body">
-                        <!-- Summary Section -->
-                        <div class="row mb-4">
-                            <div class="col-md-3">
-                                <div class="card summary-card">
-                                    <div class="card-body">
-                                        <h6 class="card-title">Total Polling Places</h6>
-                                        <p class="summary-value">{{ total_booths.get(selected_electorate, 0) }}</p>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="card summary-card">
-                                    <div class="card-body">
-                                        <h6 class="card-title">Votes Counted</h6>
-                                        <p class="summary-value">{{ total_votes.get(selected_electorate, 0) }}</p>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="card summary-card">
-                                    <div class="card-body">
-                                        <h6 class="card-title">TCP1</h6>
-                                        <p class="summary-value">
-                                            {% if tcp_candidates and tcp_candidates|length > 0 %}
-                                                {{ tcp_candidates[0].name }}: {{ tcp_candidates[0].votes }}
-                                            {% else %}
-                                                Not set
-                                            {% endif %}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="card summary-card">
-                                    <div class="card-body">
-                                        <h6 class="card-title">TCP2</h6>
-                                        <p class="summary-value">
-                                            {% if tcp_candidates and tcp_candidates|length > 1 %}
-                                                {{ tcp_candidates[1].name }}: {{ tcp_candidates[1].votes }}
-                                            {% else %}
-                                                Not set
-                                            {% endif %}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
                         <div class="row">
                             <div class="col-md-6">
                                 <h5>Primary Votes</h5>
@@ -130,13 +81,7 @@
                                             </tr>
                                         </thead>
                                         <tbody id="primary-votes-table">
-                                            {% for item in primary_votes %}
-                                            <tr>
-                                                <td>{{ item.candidate }}</td>
-                                                <td>{{ item.votes }}</td>
-                                                <td>{{ item.percentage|round(2) }}%</td>
-                                            </tr>
-                                            {% endfor %}
+                                            <!-- Will be populated by JavaScript -->
                                         </tbody>
                                     </table>
                                 </div>
@@ -156,13 +101,7 @@
                                             </tr>
                                         </thead>
                                         <tbody id="tcp-votes-table">
-                                            {% for item in tcp_votes %}
-                                            <tr>
-                                                <td>{{ item.candidate }}</td>
-                                                <td>{{ item.votes }}</td>
-                                                <td>{{ item.percentage|round(2) }}%</td>
-                                            </tr>
-                                            {% endfor %}
+                                            <!-- Will be populated by JavaScript -->
                                         </tbody>
                                     </table>
                                 </div>
@@ -174,8 +113,7 @@
                                 <div class="d-flex justify-content-between align-items-center mb-2">
                                     <h5>Booth Results</h5>
                                     {% if is_admin %}
-                                    <button type="button" class="btn btn-success" 
-                                        onclick="openManualEntryModal('', '', '{{ selected_electorate }}')">
+                                    <button type="button" class="btn btn-success" id="add-booth-btn">
                                         Add New Booth Result
                                     </button>
                                     {% endif %}
@@ -194,133 +132,13 @@
                                             </tr>
                                         </thead>
                                         <tbody id="booth-results-table">
-                                            {% for result in booth_results %}
-                                            <tr>
-                                                <td>{{ result.booth_name }}</td>
-                                                <td>{{ result.timestamp }}</td>
-                                                <td>{{ result.totals.formal }}</td>
-                                                <td>{{ result.totals.informal }}</td>
-                                                <td>{{ result.totals.total }}</td>
-                                                <td>
-                                                    {% if result.swing is defined and result.swing is not none %}
-                                                        {% if result.swing > 0 %}
-                                                            <span class="text-danger">+{{ result.swing|round(2) }}% to ALP</span>
-                                                        {% elif result.swing < 0 %}
-                                                            <span class="text-primary">{{ result.swing|round(2) }}% to LNP</span>
-                                                        {% else %}
-                                                            No swing
-                                                        {% endif %}
-                                                    {% else %}
-                                                        N/A
-                                                    {% endif %}
-                                                </td>
-                                                <td>
-                                                    <a href="/results/{{ result.id }}" class="btn btn-sm btn-primary">
-                                                        View
-                                                    </a>
-                                                    {% if is_admin %}
-                                                    <button type="button" class="btn btn-sm btn-warning" 
-                                                        onclick="openManualEntryModal('{{ result.id }}', '{{ result.booth_name }}', '{{ selected_electorate }}')">
-                                                        Manual Entry
-                                                    </button>
-                                                    {% endif %}
-                                                </td>
-                                            </tr>
-                                            {% endfor %}
+                                            <!-- Will be populated by JavaScript -->
                                         </tbody>
                                     </table>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
-                {% else %}
-                <div class="alert alert-info">
-                    <h4>Select an electorate from the list to view live results</h4>
-                    <p>The dashboard will automatically update as new results come in.</p>
-                </div>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-    
-    <!-- Manual Entry Modal -->
-    <div class="modal fade" id="manualEntryModal" tabindex="-1" aria-labelledby="manualEntryModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="manualEntryModalLabel">Manual Result Entry</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <form id="manualEntryForm">
-                        <input type="hidden" id="manual-result-id" name="result_id">
-                        <input type="hidden" id="manual-booth-name" name="booth_name">
-                        <input type="hidden" id="manual-electorate" name="electorate">
-                        
-                        <div class="row mb-3">
-                            <div class="col-md-12">
-                                <h5>Booth Information</h5>
-                                <p>Electorate: <span id="display-electorate"></span></p>
-                                <div id="booth-name-display-container">
-                                    <p>Booth Name: <span id="display-booth-name"></span></p>
-                                </div>
-                                <div id="booth-name-input-container" style="display: none;">
-                                    <div class="mb-3">
-                                        <label for="booth-dropdown" class="form-label">Select Booth</label>
-                                        <select class="form-select" id="booth-dropdown" required>
-                                            <option value="">Select a booth...</option>
-                                            <!-- Polling places will be loaded here -->
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="row mb-3">
-                            <div class="col-md-12">
-                                <h5>Vote Totals</h5>
-                                <div class="row g-3">
-                                    <div class="col-md-4">
-                                        <label for="formal-votes" class="form-label">Formal Votes</label>
-                                        <input type="number" class="form-control" id="formal-votes" name="formal_votes" required onchange="validateTotals()">
-                                    </div>
-                                    <div class="col-md-4">
-                                        <label for="informal-votes" class="form-label">Informal Votes</label>
-                                        <input type="number" class="form-control" id="informal-votes" name="informal_votes" required onchange="validateTotals()">
-                                    </div>
-                                    <div class="col-md-4">
-                                        <label for="total-votes" class="form-label">Total Votes</label>
-                                        <input type="number" class="form-control" id="total-votes" name="total_votes" required onchange="validateTotals()">
-                                    </div>
-                                </div>
-                                <div id="total-validation-message" class="mt-2" style="display: none;"></div>
-                            </div>
-                        </div>
-                        
-                        <div class="row mb-3">
-                            <div class="col-md-12">
-                                <h5>Votes by Candidate</h5>
-                                <div class="table-responsive">
-                                    <table class="table table-bordered">
-                                        <thead>
-                                            <tr>
-                                                <th>Candidate</th>
-                                                <th>Primary Votes</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="candidate-votes-table">
-                                            <!-- Candidate votes will be loaded here -->
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                    <button type="button" class="btn btn-primary" onclick="submitManualEntry()">Save Changes</button>
                 </div>
             </div>
         </div>

@@ -1303,177 +1303,158 @@ async def api_dashboard(electorate: str):
     """
     try:
         logger.info(f"=== Starting dashboard request for electorate: {electorate} ===")
-        import sys
-        import os
-        from pathlib import Path
 
-        db_path = SQLALCHEMY_DATABASE_URL.replace("sqlite:///", "")
-        logger.info(f"Connecting to database at: {db_path}")
-
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-
-        # Log all results for this electorate before filtering
-        cursor.execute(
-            """
-            SELECT id, timestamp, electorate, booth_name, is_reviewed
-            FROM results 
-            WHERE electorate = ?
-            ORDER BY timestamp DESC
-        """,
-            (electorate,),
-        )
-        all_electorate_results = cursor.fetchall()
-        logger.info(
-            f"Found {len(all_electorate_results)} total results for {electorate}:"
-        )
-        for result in all_electorate_results:
-            logger.info(
-                f"Result ID: {result[0]}, Booth: {result[3]}, Reviewed: {result[4]}"
+        db = SessionLocal()
+        try:
+            # Get all results for this electorate
+            all_results = (
+                db.query(Result)
+                .filter_by(electorate=electorate)
+                .order_by(Result.timestamp.desc())
+                .all()
             )
 
-        # Get reviewed results count
-        cursor.execute(
-            "SELECT COUNT(*) FROM results WHERE electorate = ? AND is_reviewed = 1",
-            (electorate,),
-        )
-        reviewed_count = cursor.fetchone()[0]
-        logger.info(f"Found {reviewed_count} reviewed results for {electorate}")
+            logger.info(f"Found {len(all_results)} total results for {electorate}:")
+            for result in all_results:
+                logger.info(
+                    f"Result ID: {result.id}, Booth: {result.booth_name}, Reviewed: {result.is_reviewed}"
+                )
 
-        # Get results with data
-        cursor.execute(
-            """
-            SELECT id, timestamp, electorate, booth_name, image_url, data
-            FROM results 
-            WHERE electorate = ? AND is_reviewed = 1
-            ORDER BY timestamp DESC
-        """,
-            (electorate,),
-        )
+            # Get reviewed results
+            reviewed_results = (
+                db.query(Result)
+                .filter_by(electorate=electorate, is_reviewed=1)
+                .order_by(Result.timestamp.desc())
+                .all()
+            )
 
-        columns = ["id", "timestamp", "electorate", "booth_name", "image_url", "data"]
-        results = []
+            logger.info(
+                f"Found {len(reviewed_results)} reviewed results for {electorate}"
+            )
 
-        for row in cursor.fetchall():
-            result = dict(zip(columns, row))
-            if result["data"] and isinstance(result["data"], str):
-                try:
-                    result["data"] = json.loads(result["data"])
-                except json.JSONDecodeError:
-                    logger.warning(
-                        f"Failed to parse JSON data for result {result['id']}"
+            booth_results = []
+            primary_votes = {}
+
+            for result in reviewed_results:
+                booth_data = {
+                    "id": result.id,
+                    "timestamp": result.timestamp.isoformat(),
+                    "booth_name": result.booth_name,
+                    "image_url": result.image_url,
+                }
+
+                if result.data:
+                    try:
+                        result_data = json.loads(result.data)
+
+                        if "primary_votes" in result_data:
+                            booth_data["primary_votes"] = result_data["primary_votes"]
+                            for candidate, votes in result_data[
+                                "primary_votes"
+                            ].items():
+                                if candidate not in primary_votes:
+                                    primary_votes[candidate] = {
+                                        "votes": 0,
+                                        "percentage": 0,
+                                    }
+                                primary_votes[candidate]["votes"] += votes
+
+                        if "tcp_votes" in result_data:
+                            booth_data["tcp_votes"] = result_data["tcp_votes"]
+
+                        if "totals" in result_data:
+                            booth_data["totals"] = result_data["totals"]
+                    except json.JSONDecodeError:
+                        logger.warning(
+                            f"Failed to parse JSON data for result {result.id}"
+                        )
+                        continue
+
+                booth_results.append(booth_data)
+                logger.info(f"Processing result for booth: {result.booth_name}")
+
+            logger.info(f"Total processed results: {len(booth_results)}")
+
+            booth_count = len(reviewed_results)
+            total_booths = len(booth_results)
+            completion_percentage = (
+                (booth_count / total_booths * 100) if total_booths > 0 else 0
+            )
+
+            total_primary_votes = sum(
+                candidate["votes"] for candidate in primary_votes.values()
+            )
+            if total_primary_votes > 0:
+                for candidate in primary_votes:
+                    primary_votes[candidate]["percentage"] = (
+                        primary_votes[candidate]["votes"] / total_primary_votes * 100
                     )
 
-            results.append(result)
-            logger.info(f"Processing result for booth: {result['booth_name']}")
-
-        logger.info(f"Total processed results: {len(results)}")
-
-        booth_count = reviewed_count
-        total_booths = len(results)
-        completion_percentage = (
-            (booth_count / total_booths * 100) if total_booths > 0 else 0
-        )
-
-        booth_results = []
-        primary_votes = {}
-
-        for result in results:
-            booth_data = {
-                "id": result["id"],
-                "timestamp": result["timestamp"],
-                "booth_name": result["booth_name"],
-                "image_url": result["image_url"],
-            }
-
-            if result["data"] and "primary_votes" in result["data"]:
-                booth_data["primary_votes"] = result["data"]["primary_votes"]
-
-                for candidate, votes in result["data"]["primary_votes"].items():
-                    if candidate not in primary_votes:
-                        primary_votes[candidate] = {"votes": 0, "percentage": 0}
-                    primary_votes[candidate]["votes"] += votes
-
-            if result["data"] and "tcp_votes" in result["data"]:
-                booth_data["tcp_votes"] = result["data"]["tcp_votes"]
-
-            if result["data"] and "totals" in result["data"]:
-                booth_data["totals"] = result["data"]["totals"]
-
-            booth_results.append(booth_data)
-
-        total_primary_votes = sum(
-            candidate["votes"] for candidate in primary_votes.values()
-        )
-        if total_primary_votes > 0:
-            for candidate in primary_votes:
-                primary_votes[candidate]["percentage"] = (
-                    primary_votes[candidate]["votes"] / total_primary_votes
-                ) * 100
-
-        # Get TCP candidates
-        cursor.execute(
-            """
-            SELECT id, electorate, candidate_name
-            FROM tcp_candidates
-            WHERE electorate = ?
-        """,
-            (electorate,),
-        )
-
-        tcp_candidates_data = []
-        tcp_candidate_names = []
-
-        for row in cursor.fetchall():
-            tcp_candidate = {
-                "id": row[0],
-                "electorate": row[1],
-                "candidate_name": row[2],
-            }
-            tcp_candidates_data.append(tcp_candidate)
-            tcp_candidate_names.append(row[2])  # candidate_name
-
-        tcp_votes = {}
-        for tcp_candidate in tcp_candidate_names:
-            tcp_votes[tcp_candidate] = 0
-
-        for result in results:
-            if result["data"] and "tcp_votes" in result["data"]:
-                for tcp_candidate, votes in result["data"]["tcp_votes"].items():
-                    if tcp_candidate in tcp_votes:
-                        tcp_votes[tcp_candidate] += votes
-
-        tcp_votes_array = []
-        total_tcp_votes = sum(tcp_votes.values())
-
-        for candidate, votes in tcp_votes.items():
-            percentage = (votes / total_tcp_votes * 100) if total_tcp_votes > 0 else 0
-            tcp_votes_array.append(
-                {"candidate": candidate, "votes": votes, "percentage": percentage}
+            # Get TCP candidates
+            tcp_candidates = (
+                db.query(TCPCandidate).filter_by(electorate=electorate).all()
             )
 
-        primary_votes_array = []
-        for candidate, data in primary_votes.items():
-            primary_votes_array.append(
-                {
-                    "candidate": candidate,
-                    "votes": data["votes"],
-                    "percentage": data["percentage"],
+            tcp_candidates_data = []
+            tcp_candidate_names = []
+            for candidate in tcp_candidates:
+                tcp_candidate = {
+                    "id": candidate.id,
+                    "electorate": candidate.electorate,
+                    "candidate_name": candidate.candidate_name,
                 }
-            )
+                tcp_candidates_data.append(tcp_candidate)
+                tcp_candidate_names.append(candidate.candidate_name)
 
-        conn.close()
+            tcp_votes = {}
+            for tcp_candidate in tcp_candidate_names:
+                tcp_votes[tcp_candidate] = 0
 
-        return {
-            "status": "success",
-            "booth_count": booth_count,
-            "total_booths": total_booths,
-            "completion_percentage": completion_percentage,
-            "booth_results": booth_results,
-            "primary_votes": primary_votes_array,
-            "tcp_candidates": tcp_candidates_data,
-            "tcp_votes": tcp_votes_array,
-        }
+            for result in reviewed_results:
+                if result.data:
+                    try:
+                        result_data = json.loads(result.data)
+                        if "two_candidate_preferred" in result_data:
+                            for tcp_candidate, votes in result_data[
+                                "two_candidate_preferred"
+                            ].items():
+                                if tcp_candidate in tcp_votes:
+                                    tcp_votes[tcp_candidate] += votes
+                    except json.JSONDecodeError:
+                        continue
+
+            tcp_votes_array = []
+            total_tcp_votes = sum(tcp_votes.values())
+            for candidate, votes in tcp_votes.items():
+                percentage = (
+                    (votes / total_tcp_votes * 100) if total_tcp_votes > 0 else 0
+                )
+                tcp_votes_array.append(
+                    {"candidate": candidate, "votes": votes, "percentage": percentage}
+                )
+
+            primary_votes_array = []
+            for candidate, data in primary_votes.items():
+                primary_votes_array.append(
+                    {
+                        "candidate": candidate,
+                        "votes": data["votes"],
+                        "percentage": data["percentage"],
+                    }
+                )
+
+            return {
+                "status": "success",
+                "booth_count": booth_count,
+                "total_booths": total_booths,
+                "completion_percentage": completion_percentage,
+                "booth_results": booth_results,
+                "primary_votes": primary_votes_array,
+                "tcp_candidates": tcp_candidates_data,
+                "tcp_votes": tcp_votes_array,
+            }
+        finally:
+            db.close()
     except Exception as e:
         logger.error(f"Error getting dashboard data for electorate {electorate}: {e}")
         logger.error(f"Error type: {type(e).__name__}")

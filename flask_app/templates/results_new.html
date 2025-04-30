@@ -12,54 +12,26 @@
                     <h5 class="card-title mb-0">Latest Results</h5>
                 </div>
                 <div class="card-body">
-                    {% if results %}
-                        <div class="table-responsive">
-                            <table class="table table-striped">
-                                <thead>
-                                    <tr>
-                                        <th>ID</th>
-                                        <th>Timestamp</th>
-                                        <th>Image</th>
-                                        <th>Data</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for result in results %}
-                                    <tr>
-                                        <td>{{ result.id }}</td>
-                                        <td>{{ result.timestamp }}</td>
-                                        <td>
-                                            {% if result.image_url %}
-                                            <a href="{{ result.image_url }}" target="_blank">View Image</a>
-                                            {% else %}
-                                            No image
-                                            {% endif %}
-                                        </td>
-                                        <td>
-                                            <a href="/results/{{ result.id }}" class="btn btn-sm btn-primary">
-                                                View Details
-                                            </a>
-                                            <button class="btn btn-sm btn-outline-secondary" 
-                                                    data-bs-toggle="collapse" 
-                                                    data-bs-target="#result-{{ result.id }}">
-                                                Raw Data
-                                            </button>
-                                            <div class="collapse mt-2" id="result-{{ result.id }}">
-                                                <div class="card card-body">
-                                                    <pre>{{ result.data | tojson(indent=2) }}</pre>
-                                                </div>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    {% else %}
-                        <div class="alert alert-info">
-                            No results found. Upload tally sheet images to see results here.
-                        </div>
-                    {% endif %}
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Timestamp</th>
+                                    <th>Electorate</th>
+                                    <th>Booth</th>
+                                    <th>Image</th>
+                                    <th>Data</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resultsTableBody">
+                                <!-- Results will be loaded here -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="noResultsAlert" class="alert alert-info" style="display: none;">
+                        No results found. Upload tally sheet images to see results here.
+                    </div>
                 </div>
             </div>
         </div>
@@ -67,7 +39,6 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/main.js') }}"></script>
 <script>
     // Load results directly from FastAPI when the page loads
     document.addEventListener('DOMContentLoaded', function() {
@@ -93,23 +64,30 @@
                 updateResultsTable(data.results);
             } else {
                 console.error('Error loading results:', data.message || 'Unknown error');
+                showNoResults();
             }
         })
         .catch(error => {
             console.error('Error loading results:', error);
+            showNoResults();
         });
     }
     
     // Function to update the results table with data from FastAPI
     function updateResultsTable(results) {
-        const tableBody = document.querySelector('tbody');
-        const noResultsAlert = document.querySelector('.alert-info');
+        const tableBody = document.getElementById('resultsTableBody');
+        const noResultsAlert = document.getElementById('noResultsAlert');
+        
+        if (!tableBody) {
+            console.error('Results table body not found');
+            return;
+        }
         
         if (results && results.length > 0) {
             // Clear existing content
             tableBody.innerHTML = '';
             
-            // Hide no results message if it exists
+            // Hide no results message
             if (noResultsAlert) {
                 noResultsAlert.style.display = 'none';
             }
@@ -125,6 +103,8 @@
                 row.innerHTML = `
                     <td>${result.id}</td>
                     <td>${formattedTimestamp}</td>
+                    <td>${result.electorate || 'Unknown'}</td>
+                    <td>${result.booth_name || 'Unknown'}</td>
                     <td>
                         ${result.image_url ? 
                             `<a href="${result.image_url}" target="_blank">View Image</a>` : 
@@ -150,23 +130,21 @@
                 tableBody.appendChild(row);
             });
         } else {
-            // Show no results message
-            if (noResultsAlert) {
-                noResultsAlert.style.display = 'block';
-            } else {
-                const cardBody = document.querySelector('.card-body');
-                const table = document.querySelector('.table-responsive');
-                
-                if (table) {
-                    table.style.display = 'none';
-                }
-                
-                const alert = document.createElement('div');
-                alert.className = 'alert alert-info';
-                alert.textContent = 'No results found. Upload tally sheet images to see results here.';
-                
-                cardBody.appendChild(alert);
-            }
+            showNoResults();
+        }
+    }
+    
+    // Function to show no results message
+    function showNoResults() {
+        const tableBody = document.getElementById('resultsTableBody');
+        const noResultsAlert = document.getElementById('noResultsAlert');
+        
+        if (tableBody) {
+            tableBody.innerHTML = '';
+        }
+        
+        if (noResultsAlert) {
+            noResultsAlert.style.display = 'block';
         }
     }
 </script>
