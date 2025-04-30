@@ -1,11 +1,22 @@
-
 {% extends "base.html" %}
 
 {% block title %}Electorate Dashboard - Amalfi Results{% endblock %}
 
-
 {% block extra_css %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+    .bar-chart-container {
+        height: 300px;
+        margin-bottom: 20px;
+    }
+    .summary-card {
+        margin-bottom: 20px;
+    }
+    .summary-value {
+        font-size: 1.2em;
+        font-weight: bold;
+    }
+</style>
 {% endblock %}
 
 {% block content %}
@@ -55,10 +66,58 @@
                         </div>
                     </div>
                     <div class="card-body">
+                        <!-- Summary Section -->
+                        <div class="row mb-4">
+                            <div class="col-md-3">
+                                <div class="card summary-card">
+                                    <div class="card-body">
+                                        <h6 class="card-title">Total Polling Places</h6>
+                                        <p class="summary-value">{{ total_booths.get(selected_electorate, 0) }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card summary-card">
+                                    <div class="card-body">
+                                        <h6 class="card-title">Votes Counted</h6>
+                                        <p class="summary-value">{{ total_votes.get(selected_electorate, 0) }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card summary-card">
+                                    <div class="card-body">
+                                        <h6 class="card-title">TCP1</h6>
+                                        <p class="summary-value">
+                                            {% if tcp_candidates and tcp_candidates|length > 0 %}
+                                                {{ tcp_candidates[0].name }}: {{ tcp_candidates[0].votes }}
+                                            {% else %}
+                                                Not set
+                                            {% endif %}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card summary-card">
+                                    <div class="card-body">
+                                        <h6 class="card-title">TCP2</h6>
+                                        <p class="summary-value">
+                                            {% if tcp_candidates and tcp_candidates|length > 1 %}
+                                                {{ tcp_candidates[1].name }}: {{ tcp_candidates[1].votes }}
+                                            {% else %}
+                                                Not set
+                                            {% endif %}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="row">
                             <div class="col-md-6">
                                 <h5>Primary Votes</h5>
-                                <div class="chart-container" style="position: relative; height:300px;">
+                                <div class="bar-chart-container">
                                     <canvas id="primary-votes-chart"></canvas>
                                 </div>
                                 <div class="table-responsive mt-3">
@@ -84,7 +143,7 @@
                             </div>
                             <div class="col-md-6">
                                 <h5>Two-Candidate Preferred</h5>
-                                <div class="chart-container" style="position: relative; height:300px;">
+                                <div class="bar-chart-container">
                                     <canvas id="tcp-votes-chart"></canvas>
                                 </div>
                                 <div class="table-responsive mt-3">
@@ -248,35 +307,10 @@
                                             <tr>
                                                 <th>Candidate</th>
                                                 <th>Primary Votes</th>
-                                                <th>TCP 1</th>
-                                                <th>TCP 2</th>
                                             </tr>
                                         </thead>
                                         <tbody id="candidate-votes-table">
-                                            <!-- Candidate rows will be dynamically added here -->
-                                        </tbody>
-                                    </table>
-                                </div>
-                                <div id="primary-votes-validation-message" class="mt-2" style="display: none;"></div>
-                            </div>
-                        </div>
-                        
-                        <div class="row mb-3">
-                            <div class="col-md-12">
-                                <h5>TCP Summary</h5>
-                                <div class="table-responsive">
-                                    <table class="table table-bordered">
-                                        <thead>
-                                            <tr>
-                                                <th>TCP Candidate</th>
-                                                <th>Primary Votes</th>
-                                                <th>Preference Votes</th>
-                                                <th>Total Votes</th>
-                                                <th>Percentage</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="tcp-summary-table">
-                                            <!-- TCP summary will be dynamically added here -->
+                                            <!-- Candidate votes will be loaded here -->
                                         </tbody>
                                     </table>
                                 </div>
@@ -285,8 +319,8 @@
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" id="submit-button" onclick="submitManualEntry()">Submit Results</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary" onclick="submitManualEntry()">Save Changes</button>
                 </div>
             </div>
         </div>
@@ -294,713 +328,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.6.1/dist/socket.io.min.js"></script>
-<script src="{{ url_for('static', filename='js/main.js') }}"></script>
-
-<script>
-    // Load electorates from FastAPI when the page loads
-    document.addEventListener('DOMContentLoaded', function() {
-        loadElectorates();
-    });
-    
-    // Function to load electorates from FastAPI
-    function loadElectorates() {
-        fetch('/api/electorates', {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json',
-            }
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.status === 'success') {
-                updateElectoratesList(data.electorates);
-            } else {
-                console.error('Error loading electorates:', data.message || 'Unknown error');
-            }
-        })
-        .catch(error => {
-            console.error('Error loading electorates:', error);
-        });
-    }
-    
-    // Function to update the electorates list
-    function updateElectoratesList(electorates) {
-        const electorateList = document.getElementById('electorate-list');
-        if (electorateList) {
-            electorateList.innerHTML = '';
-            
-            electorates.forEach(electorate => {
-                const isActive = electorate === '{{ selected_electorate }}';
-                const item = document.createElement('a');
-                item.href = `/dashboard/${encodeURIComponent(electorate)}`;
-                item.className = `list-group-item list-group-item-action ${isActive ? 'active' : ''}`;
-                item.innerHTML = `
-                    ${electorate}
-                    <span class="badge bg-primary float-end" id="booth-count-${electorate.replace(/\s+/g, '-').toLowerCase()}">
-                        ${isActive ? '{{ booth_counts.get(selected_electorate, 0) }}' : '0'}
-                    </span>
-                `;
-                electorateList.appendChild(item);
-            });
-        }
-    }
-</script>
-
-{% if selected_electorate %}
-<script>
-    // Initialize charts
-    const primaryVotesCtx = document.getElementById('primary-votes-chart').getContext('2d');
-    const tcpVotesCtx = document.getElementById('tcp-votes-chart').getContext('2d');
-    
-    // Primary votes chart
-    const primaryVotesData = {
-        labels: [{% for item in primary_votes %}'{{ item.candidate }}',{% endfor %}],
-        datasets: [{
-            label: 'Primary Votes',
-            data: [{% for item in primary_votes %}{{ item.percentage }},{% endfor %}],
-            backgroundColor: [
-                'rgba(54, 162, 235, 0.6)',
-                'rgba(255, 99, 132, 0.6)',
-                'rgba(75, 192, 192, 0.6)',
-                'rgba(255, 206, 86, 0.6)',
-                'rgba(153, 102, 255, 0.6)',
-                'rgba(255, 159, 64, 0.6)',
-                'rgba(199, 199, 199, 0.6)'
-            ],
-            borderColor: [
-                'rgba(54, 162, 235, 1)',
-                'rgba(255, 99, 132, 1)',
-                'rgba(75, 192, 192, 1)',
-                'rgba(255, 206, 86, 1)',
-                'rgba(153, 102, 255, 1)',
-                'rgba(255, 159, 64, 1)',
-                'rgba(199, 199, 199, 1)'
-            ],
-            borderWidth: 1
-        }]
-    };
-    
-    const primaryVotesChart = new Chart(primaryVotesCtx, {
-        type: 'pie',
-        data: primaryVotesData,
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            return `${context.label}: ${context.raw.toFixed(2)}%`;
-                        }
-                    }
-                }
-            }
-        }
-    });
-    
-    // TCP votes chart
-    const tcpVotesData = {
-        labels: [{% for item in tcp_votes %}'{{ item.candidate }}',{% endfor %}],
-        datasets: [{
-            label: 'TCP Votes',
-            data: [{% for item in tcp_votes %}{{ item.percentage }},{% endfor %}],
-            backgroundColor: [
-                'rgba(54, 162, 235, 0.6)',
-                'rgba(255, 99, 132, 0.6)'
-            ],
-            borderColor: [
-                'rgba(54, 162, 235, 1)',
-                'rgba(255, 99, 132, 1)'
-            ],
-            borderWidth: 1
-        }]
-    };
-    
-    const tcpVotesChart = new Chart(tcpVotesCtx, {
-        type: 'pie',
-        data: tcpVotesData,
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            return `${context.label}: ${context.raw.toFixed(2)}%`;
-                        }
-                    }
-                }
-            }
-        }
-    });
-    
-    // Socket.IO for live updates
-    const socketUrl = window.location.protocol === 'https:' ? 
-        'https://' + window.location.host : 
-        'http://' + window.location.host;
-    const socket = io(socketUrl + '/dashboard', {
-        path: '/socket.io',
-        transports: ['websocket', 'polling'],
-        reconnectionAttempts: 5
-    });
-    let connectionStatus = document.createElement('div');
-    connectionStatus.className = 'alert alert-info mt-2';
-    connectionStatus.innerHTML = 'Connecting to live updates...';
-    document.querySelector('.card-header').appendChild(connectionStatus);
-    
-    socket.on('connect', function() {
-        console.log('Socket.IO connected');
-        connectionStatus.className = 'alert alert-success mt-2';
-        connectionStatus.innerHTML = 'Connected to live updates';
-        
-        // Join electorate room
-        socket.emit('join', { electorate: '{{ selected_electorate }}' });
-    });
-    
-    socket.on('disconnect', function() {
-        console.log('Socket.IO disconnected');
-        connectionStatus.className = 'alert alert-danger mt-2';
-        connectionStatus.innerHTML = 'Disconnected from live updates, using polling';
-        
-        // Start polling as fallback
-        startPolling();
-    });
-    
-    socket.on('status', function(data) {
-        console.log('Status:', data);
-    });
-    
-    socket.on('update', function(data) {
-        console.log('Update received:', data);
-        if (data.electorate === '{{ selected_electorate }}') {
-            fetchDashboardData('{{ selected_electorate }}');
-        }
-    });
-    
-    socket.on('tcp_update', function(data) {
-        console.log('TCP update received:', data);
-        if (data.electorate === '{{ selected_electorate }}') {
-            fetchDashboardData('{{ selected_electorate }}');
-        }
-    });
-    
-    socket.on('connect_error', function(error) {
-        console.error('Socket.IO connection error:', error);
-        connectionStatus.className = 'alert alert-warning mt-2';
-        connectionStatus.innerHTML = 'Connection error, using polling';
-        
-        // Start polling as fallback
-        startPolling();
-    });
-    
-    // Poll for updates as a fallback if Socket.IO is not available
-    let pollingInterval;
-    
-    function startPolling() {
-        if (!pollingInterval) {
-            pollingInterval = setInterval(pollForUpdates, 5000);
-            console.log('Started polling for updates');
-        }
-    }
-    
-    function fetchDashboardData(electorate) {
-        // Direct call to FastAPI endpoint
-        let apiUrl;
-        
-        // In production, use the API path which will be handled by nginx
-        apiUrl = `/api/dashboard/${encodeURIComponent(electorate)}`;
-        
-        // For development/testing with direct FastAPI access (uncomment if needed)
-        // apiUrl = `http://results_fastapi_app:8000/dashboard/${encodeURIComponent(electorate)}`;
-        
-        fetch(apiUrl, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json',
-                'Cache-Control': 'no-cache'
-            }
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP error ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            updateDashboard(data);
-        })
-        .catch(error => {
-            console.error('Error fetching dashboard data:', error);
-            connectionStatus.className = 'alert alert-danger mt-2';
-            connectionStatus.innerHTML = 'Error fetching data: ' + error.message;
-        });
-    }
-    
-    function updateDashboard(data) {
-        // Update booth count
-        document.getElementById('booths-reporting').textContent = 
-            `${data.booth_count} of ${data.total_booths} Booths Reporting`;
-        
-        // Update last updated time
-        document.getElementById('update-time').textContent = data.last_updated;
-        
-        // Update primary votes chart and table
-        primaryVotesChart.data.labels = data.primary_votes.map(item => item.candidate);
-        primaryVotesChart.data.datasets[0].data = data.primary_votes.map(item => item.percentage);
-        primaryVotesChart.update();
-        
-        const primaryVotesTable = document.getElementById('primary-votes-table');
-        primaryVotesTable.innerHTML = '';
-        data.primary_votes.forEach(item => {
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td>${item.candidate}</td>
-                <td>${item.votes}</td>
-                <td>${item.percentage.toFixed(2)}%</td>
-            `;
-            primaryVotesTable.appendChild(row);
-        });
-        
-        // Update TCP votes chart and table
-        tcpVotesChart.data.labels = data.tcp_votes.map(item => item.candidate);
-        tcpVotesChart.data.datasets[0].data = data.tcp_votes.map(item => item.percentage);
-        tcpVotesChart.update();
-        
-        const tcpVotesTable = document.getElementById('tcp-votes-table');
-        tcpVotesTable.innerHTML = '';
-        data.tcp_votes.forEach(item => {
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td>${item.candidate}</td>
-                <td>${item.votes}</td>
-                <td>${item.percentage.toFixed(2)}%</td>
-            `;
-            tcpVotesTable.appendChild(row);
-        });
-        
-        // Update booth results table
-        const boothResultsTable = document.getElementById('booth-results-table');
-        boothResultsTable.innerHTML = '';
-        data.booth_results.forEach(result => {
-            const row = document.createElement('tr');
-            
-            let swingText = 'N/A';
-            if (result.swing !== undefined && result.swing !== null) {
-                if (result.swing > 0) {
-                    swingText = `<span class="text-danger">+${result.swing.toFixed(2)}% to ALP</span>`;
-                } else if (result.swing < 0) {
-                    swingText = `<span class="text-primary">${result.swing.toFixed(2)}% to LNP</span>`;
-                } else {
-                    swingText = 'No swing';
-                }
-            }
-            
-            row.innerHTML = `
-                <td>${result.booth_name}</td>
-                <td>${result.timestamp}</td>
-                <td>${result.totals.formal}</td>
-                <td>${result.totals.informal}</td>
-                <td>${result.totals.total}</td>
-                <td>${swingText}</td>
-                <td>
-                    <a href="/results/${result.id}" class="btn btn-sm btn-primary">
-                        View
-                    </a>
-                    ${isAdmin ? `<button type="button" class="btn btn-sm btn-warning" 
-                        onclick="openManualEntryModal(${result.id}, '${result.booth_name}', '${selected_electorate}')">
-                        Manual Entry
-                    </button>` : ''}
-                </td>
-            `;
-            boothResultsTable.appendChild(row);
-        });
-    }
-    
-    function pollForUpdates() {
-        fetchDashboardData('{{ selected_electorate }}');
-    }
-    
-    // Global variables to store candidates data
-    let electorateCandidates = [];
-    let electorateTcpCandidates = [];
-    let isAdmin = {{ 'true' if is_admin else 'false' }};
-    
-    // Function to open the manual entry modal
-    function openManualEntryModal(resultId, boothName, electorate) {
-        const isNewEntry = !resultId;
-        
-        // Set form values
-        document.getElementById('manual-result-id').value = resultId;
-        document.getElementById('manual-booth-name').value = boothName;
-        document.getElementById('manual-electorate').value = electorate;
-        
-        // Set display values
-        document.getElementById('display-electorate').textContent = electorate;
-        
-        // Show booth name input field for new entries
-        const boothNameInputContainer = document.getElementById('booth-name-input-container');
-        const boothNameDisplayContainer = document.getElementById('booth-name-display-container');
-        
-        if (isNewEntry) {
-            boothNameInputContainer.style.display = 'block';
-            boothNameDisplayContainer.style.display = 'none';
-            document.getElementById('manualEntryModalLabel').textContent = 'Add New Booth Result';
-            
-            // Load polling places for dropdown
-            loadPollingPlacesForElectorate(electorate);
-        } else {
-            boothNameInputContainer.style.display = 'none';
-            boothNameDisplayContainer.style.display = 'block';
-            document.getElementById('display-booth-name').textContent = boothName;
-            document.getElementById('manualEntryModalLabel').textContent = 'Manual Result Entry';
-        }
-        
-        // Clear previous form data
-        document.getElementById('formal-votes').value = '';
-        document.getElementById('informal-votes').value = '';
-        document.getElementById('total-votes').value = '';
-        
-        // Clear validation messages
-        document.getElementById('total-validation-message').style.display = 'none';
-        document.getElementById('primary-votes-validation-message').style.display = 'none';
-        
-        // Load candidates for this electorate
-        loadCandidatesForManualEntry(electorate);
-        
-        // Show the modal
-        const manualEntryModal = new bootstrap.Modal(document.getElementById('manualEntryModal'));
-        manualEntryModal.show();
-    }
-    
-    // Function to load polling places for the selected electorate
-    function loadPollingPlacesForElectorate(electorate) {
-        fetch(`/api/admin/polling-places/${encodeURIComponent(electorate)}`, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json',
-            }
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                const dropdown = document.getElementById('booth-dropdown');
-                dropdown.innerHTML = '<option value="">Select a booth...</option>';
-                
-                data.booth_results.forEach(place => {
-                    const option = document.createElement('option');
-                    option.value = place.polling_place_name;
-                    option.textContent = place.polling_place_name;
-                    dropdown.appendChild(option);
-                });
-            }
-        })
-        .catch(error => {
-            console.error('Error loading polling places:', error);
-        });
-    }
-    
-    // Function to load candidates for the selected electorate
-    function loadCandidatesForManualEntry(electorate) {
-        // Fetch candidates for primary votes
-        fetch(`/api/candidates/${encodeURIComponent(electorate)}`, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json',
-            }
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                electorateCandidates = data.candidates;
-                
-                // Fetch TCP candidates after getting primary candidates
-                fetch(`/api/tcp-candidates/${encodeURIComponent(electorate)}`, {
-                    method: 'GET',
-                    headers: {
-                        'Accept': 'application/json',
-                    }
-                })
-                .then(response => response.json())
-                .then(tcpData => {
-                    if (tcpData.status === 'success') {
-                        electorateTcpCandidates = tcpData.candidates;
-                        populateCandidateVotesTable(electorateCandidates, electorateTcpCandidates);
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading TCP candidates:', error);
-                });
-            }
-        })
-        .catch(error => {
-            console.error('Error loading candidates:', error);
-        });
-    }
-    
-    // Function to populate candidate votes table with primary and TCP votes
-    function populateCandidateVotesTable(candidates, tcpCandidates) {
-        const tableBody = document.getElementById('candidate-votes-table');
-        tableBody.innerHTML = '';
-        
-        // Check if we have TCP candidates
-        const hasTcp = tcpCandidates && tcpCandidates.length >= 2;
-        const tcp1 = hasTcp ? tcpCandidates[0] : null;
-        const tcp2 = hasTcp ? tcpCandidates[1] : null;
-        
-        // Create a row for each candidate
-        candidates.forEach((candidate, index) => {
-            const row = document.createElement('tr');
-            
-            let rowHtml = `
-                <td>${candidate.candidate_name} (${candidate.party})</td>
-                <td>
-                    <input type="number" class="form-control primary-vote-input" 
-                           name="primary_votes_${candidate.id}" 
-                           id="primary_votes_${candidate.id}" 
-                           placeholder="Votes" required onchange="validatePrimaryVotes()">
-                </td>
-            `;
-            
-            // Add TCP columns if we have TCP candidates
-            if (hasTcp) {
-                rowHtml += `
-                    <td>
-                        <input type="number" class="form-control" 
-                               name="tcp_votes_${tcp1.id}_${candidate.id}" 
-                               id="tcp_votes_${tcp1.id}_${candidate.id}" 
-                               placeholder="Preferences to ${tcp1.candidate_name}" onchange="updateTcpSummary()">
-                    </td>
-                    <td>
-                        <input type="number" class="form-control" 
-                               name="tcp_votes_${tcp2.id}_${candidate.id}" 
-                               id="tcp_votes_${tcp2.id}_${candidate.id}" 
-                               placeholder="Preferences to ${tcp2.candidate_name}" onchange="updateTcpSummary()">
-                    </td>
-                `;
-            } else {
-                rowHtml += `
-                    <td colspan="2" class="text-center">
-                        <div class="alert alert-warning py-1 mb-0">No TCP candidates defined</div>
-                    </td>
-                `;
-            }
-            
-            row.innerHTML = rowHtml;
-            tableBody.appendChild(row);
-        });
-        
-        // Initialize TCP summary table
-        updateTcpSummary();
-    }
-    
-    // Function to validate total votes
-    function validateTotals() {
-        const formalVotes = parseInt(document.getElementById('formal-votes').value) || 0;
-        const informalVotes = parseInt(document.getElementById('informal-votes').value) || 0;
-        const totalVotes = parseInt(document.getElementById('total-votes').value) || 0;
-        
-        const calculatedTotal = formalVotes + informalVotes;
-        const validationMessage = document.getElementById('total-validation-message');
-        const submitButton = document.getElementById('submit-button');
-        
-        if (totalVotes === 0 || isNaN(totalVotes)) {
-            validationMessage.style.display = 'none';
-            return true;
-        }
-        
-        if (calculatedTotal !== totalVotes) {
-            validationMessage.innerHTML = `<div class="alert alert-danger">Total votes (${totalVotes}) must equal formal votes (${formalVotes}) plus informal votes (${informalVotes}) = ${calculatedTotal}</div>`;
-            validationMessage.style.display = 'block';
-            submitButton.disabled = true;
-            return false;
-        } else {
-            validationMessage.innerHTML = `<div class="alert alert-success">Total votes validation passed: ${calculatedTotal} = ${formalVotes} + ${informalVotes}</div>`;
-            validationMessage.style.display = 'block';
-            submitButton.disabled = false;
-            return true;
-        }
-    }
-    
-    // Function to validate primary votes
-    function validatePrimaryVotes() {
-        const formalVotes = parseInt(document.getElementById('formal-votes').value) || 0;
-        const primaryInputs = document.querySelectorAll('.primary-vote-input');
-        let primaryTotal = 0;
-        
-        primaryInputs.forEach(input => {
-            primaryTotal += parseInt(input.value) || 0;
-        });
-        
-        const validationMessage = document.getElementById('primary-votes-validation-message');
-        const submitButton = document.getElementById('submit-button');
-        
-        if (formalVotes === 0 || isNaN(formalVotes)) {
-            validationMessage.style.display = 'none';
-            return true;
-        }
-        
-        if (primaryTotal !== formalVotes) {
-            validationMessage.innerHTML = `<div class="alert alert-danger">Sum of primary votes (${primaryTotal}) must equal formal votes (${formalVotes})</div>`;
-            validationMessage.style.display = 'block';
-            submitButton.disabled = true;
-            return false;
-        } else {
-            validationMessage.innerHTML = `<div class="alert alert-success">Primary votes validation passed: ${primaryTotal} = ${formalVotes}</div>`;
-            validationMessage.style.display = 'block';
-            submitButton.disabled = false;
-            return true;
-        }
-        
-        // Update TCP summary after primary votes change
-        updateTcpSummary();
-    }
-    
-    // Function to update TCP summary
-    function updateTcpSummary() {
-        const tcpSummaryTable = document.getElementById('tcp-summary-table');
-        tcpSummaryTable.innerHTML = '';
-        
-        // Check if we have TCP candidates
-        if (!electorateTcpCandidates || electorateTcpCandidates.length < 2) {
-            tcpSummaryTable.innerHTML = '<tr><td colspan="5" class="text-center"><div class="alert alert-warning py-1 mb-0">No TCP candidates defined</div></td></tr>';
-            return;
-        }
-        
-        const formalVotes = parseInt(document.getElementById('formal-votes').value) || 0;
-        
-        // Calculate TCP summary for each TCP candidate
-        electorateTcpCandidates.forEach(tcpCandidate => {
-            // Get primary votes for this TCP candidate
-            let primaryVotes = 0;
-            electorateCandidates.forEach(candidate => {
-                if (candidate.candidate_name === tcpCandidate.candidate_name) {
-                    primaryVotes = parseInt(document.getElementById(`primary_votes_${candidate.id}`).value) || 0;
-                }
-            });
-            
-            // Get preference votes for this TCP candidate
-            let preferenceVotes = 0;
-            electorateCandidates.forEach(candidate => {
-                if (candidate.candidate_name !== tcpCandidate.candidate_name) {
-                    const tcpVotes = parseInt(document.getElementById(`tcp_votes_${tcpCandidate.id}_${candidate.id}`).value) || 0;
-                    preferenceVotes += tcpVotes;
-                }
-            });
-            
-            // Calculate total and percentage
-            const totalVotes = primaryVotes + preferenceVotes;
-            const percentage = formalVotes > 0 ? ((totalVotes / formalVotes) * 100).toFixed(2) : '0.00';
-            
-            // Create row
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td>${tcpCandidate.candidate_name} (${tcpCandidate.party})</td>
-                <td>${primaryVotes}</td>
-                <td>${preferenceVotes}</td>
-                <td>${totalVotes}</td>
-                <td>${percentage}%</td>
-            `;
-            tcpSummaryTable.appendChild(row);
-        });
-    }
-    
-    // Function to submit manual entry
-    function submitManualEntry() {
-        // Validate totals before submission
-        if (!validateTotals() || !validatePrimaryVotes()) {
-            alert('Please correct the validation errors before submitting');
-            return;
-        }
-        
-        // Prepare data object
-        const resultId = document.getElementById('manual-result-id').value;
-        let boothName = document.getElementById('manual-booth-name').value;
-        const electorate = document.getElementById('manual-electorate').value;
-        
-        // For new entries, get booth name from dropdown
-        const isNewEntry = !resultId;
-        if (isNewEntry) {
-            boothName = document.getElementById('booth-dropdown').value;
-            if (!boothName) {
-                alert('Please select a booth from the dropdown');
-                return;
-            }
-        }
-        
-        // Build primary votes data
-        const primaryVotes = {};
-        electorateCandidates.forEach(candidate => {
-            const votes = document.getElementById(`primary_votes_${candidate.id}`).value;
-            if (votes) {
-                primaryVotes[candidate.candidate_name] = parseInt(votes);
-            }
-        });
-        
-        // Build TCP votes data
-        const tcpVotes = {};
-        electorateTcpCandidates.forEach(tcpCandidate => {
-            const tcpCandidateVotes = {};
-            electorateCandidates.forEach(candidate => {
-                const voteInput = document.getElementById(`tcp_votes_${tcpCandidate.id}_${candidate.id}`);
-                if (voteInput && voteInput.value) {
-                    tcpCandidateVotes[candidate.candidate_name] = parseInt(voteInput.value);
-                }
-            });
-            tcpVotes[tcpCandidate.candidate_name] = tcpCandidateVotes;
-        });
-        
-        // Build totals data
-        const totals = {
-            formal: parseInt(document.getElementById('formal-votes').value) || 0,
-            informal: parseInt(document.getElementById('informal-votes').value) || 0,
-            total: parseInt(document.getElementById('total-votes').value) || 0
-        };
-        
-        // Create final data object
-        const data = {
-            result_id: resultId,
-            booth_name: boothName,
-            electorate: electorate,
-            primary_votes: primaryVotes,
-            two_candidate_preferred: tcpVotes,
-            totals: totals
-        };
-        
-        // Submit data to API
-        fetch('/api/manual-entry', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(data)
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                // Close modal
-                const manualEntryModal = bootstrap.Modal.getInstance(document.getElementById('manualEntryModal'));
-                manualEntryModal.hide();
-                
-                // Show success message
-                alert('Results submitted successfully!');
-                
-                // Refresh dashboard data
-                fetchDashboardData('{{ selected_electorate }}');
-            } else {
-                alert('Error submitting results: ' + data.message);
-            }
-        })
-        .catch(error => {
-            console.error('Error submitting results:', error);
-            alert('Error submitting results: ' + error.message);
-        });
-    }
-</script>
-{% endif %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 {% endblock %}
