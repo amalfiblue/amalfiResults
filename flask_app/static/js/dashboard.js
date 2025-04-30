@@ -95,7 +95,7 @@ async function loadTCPCandidates(electorate) {
         if (!response.ok) throw new Error('Failed to fetch TCP candidates');
         
         const data = await response.json();
-        updateTCPCandidates(data);
+        updateTCPVotes(data);
     } catch (error) {
         console.error('Error loading TCP candidates:', error);
         showError('Failed to load TCP candidates');
