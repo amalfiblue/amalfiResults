@@ -5,17 +5,17 @@ WORKDIR /app
 # Install Poetry and Gunicorn
 RUN pip install poetry==1.5.1 gunicorn==21.2.0
 
-# Copy the entire project first
-COPY . /app/
+# Copy only the flask app and common utilities
+COPY flask_app /app/flask_app
+COPY common /app/common
 
 # Configure Poetry to not create a virtual environment
 RUN poetry config virtualenvs.create false
 
-# Install dependencies including local packages
+# Install dependencies
 RUN cd /app/flask_app && \
     poetry export -f requirements.txt -o requirements.txt && \
-    pip install -r requirements.txt && \
-    pip install -e /app
+    pip install -r requirements.txt
 
 # Create data directory for database
 RUN mkdir -p /app/data && chmod 777 /app/data
