@@ -78,11 +78,11 @@
                                 <div class="card-body text-center">
                                     {% if result.image_url %}
                                         <div class="mb-3">
-                                            <a href="{{ result.image_url }}" target="_blank" class="btn btn-outline-primary mb-3">
+                                            <a href="http://localhost:8000{{ result.image_url }}" target="_blank" class="btn btn-outline-primary mb-3">
                                                 Open Image in New Tab
                                             </a>
                                         </div>
-                                        <img src="{{ result.image_url }}" alt="Tally Sheet" class="img-fluid border" style="max-height: 800px;">
+                                        <img src="http://localhost:8000{{ result.image_url }}" alt="Tally Sheet" class="img-fluid border" style="max-height: 800px;">
                                     {% else %}
                                         <div class="alert alert-warning">
                                             No image available for this result
@@ -247,11 +247,11 @@
             const imgContainer = document.querySelector('.card-body.text-center');
             imgContainer.innerHTML = `
                 <div class="mb-3">
-                    <a href="${result.image_url}" target="_blank" class="btn btn-outline-primary mb-3">
+                    <a href="http://localhost:8000${result.image_url}" target="_blank" class="btn btn-outline-primary mb-3">
                         Open Image in New Tab
                     </a>
                 </div>
-                <img src="${result.image_url}" alt="Tally Sheet" class="img-fluid border" style="max-height: 800px;">
+                <img src="http://localhost:8000${result.image_url}" alt="Tally Sheet" class="img-fluid border" style="max-height: 800px;">
             `;
         }
         

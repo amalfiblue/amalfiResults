@@ -89,27 +89,19 @@ async function loadPollingPlaces(electorate) {
 
 // Function to load results for an electorate
 async function loadResults(electorate) {
-    console.log('Loading results for:', electorate);
     try {
-        const response = await fetch(`/api/results/${encodeURIComponent(electorate)}`);
-        console.log('Response status:', response.status);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
+        const response = await fetch(`/api/results/electorate/${encodeURIComponent(electorate)}`);
         const data = await response.json();
-        console.log('Received data:', data);
         
         if (data.status === 'success') {
-            console.log('Processing booth results:', data.booth_results.length);
             updateDashboard(data);
         } else {
-            throw new Error(data.message || 'Failed to load results');
+            console.error('Error loading results:', data.detail);
+            showError('Failed to load results');
         }
     } catch (error) {
-        console.error('Error loading results:', error);
-        showError('Failed to load results');
+        console.error('Error fetching results:', error);
+        showError('Failed to fetch results');
     }
 }
 
