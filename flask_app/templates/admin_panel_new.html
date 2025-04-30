@@ -86,8 +86,9 @@
                                         <label for="imageFile" class="form-label">Select Image</label>
                                         <input class="form-control" type="file" id="imageFile" name="image" accept="image/*" required>
                                     </div>
-                                    <button type="submit" class="btn btn-primary w-100">
-                                        Upload and Process
+                                    <button type="submit" class="btn btn-primary w-100" id="uploadButton">
+                                        <span class="button-text">Upload and Process</span>
+                                        <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
                                     </button>
                                 </form>
                             </div>
@@ -128,6 +129,17 @@
         document.getElementById('division').addEventListener('change', function() {
             const newDivision = this.value;
             updateDivision(newDivision);
+        });
+
+        const form = document.getElementById('imageUploadForm');
+        const button = document.getElementById('uploadButton');
+        const buttonText = button.querySelector('.button-text');
+        const spinner = button.querySelector('.spinner-border');
+        
+        form.addEventListener('submit', function(e) {
+            button.disabled = true;
+            buttonText.textContent = 'Processing...';
+            spinner.classList.remove('d-none');
         });
     });
     

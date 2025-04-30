@@ -352,7 +352,19 @@ async def scan_image(file: UploadFile = File(...)):
         # Save to database
         db = SessionLocal()
         try:
-            image_url = f"temp/{file.filename}"
+            # Store the image in a proper location and use a proper URL
+            image_filename = (
+                f"{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
+            )
+            image_path = f"static/uploads/{image_filename}"
+            os.makedirs("static/uploads", exist_ok=True)
+
+            # Save the image file
+            with open(image_path, "wb") as f:
+                f.write(contents)
+
+            # Use a proper URL path
+            image_url = f"/static/uploads/{image_filename}"
 
             data_json = json.dumps(
                 {

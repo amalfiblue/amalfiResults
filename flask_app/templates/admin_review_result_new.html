@@ -268,6 +268,14 @@
             : 'Are you sure you want to reject this result?';
             
         if (confirm(confirmMessage)) {
+            // Disable buttons and show loading state
+            const buttons = document.querySelectorAll('#reviewActions button');
+            buttons.forEach(button => {
+                button.disabled = true;
+                const originalText = button.textContent;
+                button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
+            });
+            
             // Direct API call to FastAPI
             fetch(`/api/admin/review-result/${resultId}`, {
                 method: 'POST',
@@ -293,12 +301,18 @@
                     // Redirect to polling places page
                     window.location.href = `/admin/polling-places/${electorate}`;
                 } else {
-                    alert(`Error reviewing result: ${data.message || 'Unknown error'}`);
+                    throw new Error(data.message || 'Unknown error');
                 }
             })
             .catch(error => {
                 console.error('Error:', error);
                 alert(`Error reviewing result: ${error.message}`);
+                // Re-enable buttons
+                buttons.forEach(button => {
+                    button.disabled = false;
+                    button.innerHTML = button.getAttribute('data-original-text') || 
+                        (action === 'approve' ? 'Approve Result' : 'Reject Result');
+                });
             });
         }
     }
