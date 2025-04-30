@@ -48,7 +48,7 @@ from common.booth_results_processor import (
     process_and_load_polling_places,
     get_polling_places_for_division,
 )
-from utils.db_utils import ensure_database_exists, get_sqlalchemy_url
+from common.db_utils import get_sqlalchemy_url, ensure_database_exists
 
 load_dotenv()
 

@@ -38,7 +38,7 @@ if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
 from common.image_processor import ImageProcessor
-from flask_app.utils.db_utils import ensure_database_exists, get_sqlalchemy_url
+from common.db_utils import get_sqlalchemy_url, ensure_database_exists
 from common.booth_results_processor import (
     process_and_load_booth_results,
     create_polling_places_table,
