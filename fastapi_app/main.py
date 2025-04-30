@@ -84,6 +84,13 @@ app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
 ensure_database_exists()
 SQLALCHEMY_DATABASE_URL = get_sqlalchemy_url()
 
+# Debug logging
+logger.error(
+    f"ABSOLUTE DB PATH: {os.path.abspath(SQLALCHEMY_DATABASE_URL.replace('sqlite:////', ''))}"
+)
+logger.error(f"DB URL BEING USED: {SQLALCHEMY_DATABASE_URL}")
+logger.error(f"CURRENT WORKING DIR: {os.getcwd()}")
+
 # Create database engine and session
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -101,7 +108,9 @@ class Result(Base):
     is_reviewed = Column(Integer, default=0)  # SQLite stores BOOLEAN as INTEGER
     reviewer = Column(String)
     data = Column(String)  # SQLite stores JSON as TEXT
-    aec_booth_name = Column(String)  # Added for the AEC booth name
+    aec_booth_name = Column(
+        String, nullable=True
+    )  # Optional until migration is complete
 
 
 class PollingPlace(Base):
@@ -741,7 +750,9 @@ async def get_admin_polling_places(division: str):
 
 @app.get("/booth-results")
 async def get_booth_results(
-    division: Optional[str] = None, booth: Optional[str] = None
+    division: Optional[str] = None,
+    electorate: Optional[str] = None,
+    booth: Optional[str] = None,
 ):
     """
     Get polling places for a specific division/booth
@@ -758,12 +769,17 @@ async def get_booth_results(
 
         from common.booth_results_processor import get_polling_places_for_division
 
-        if not division:
-            return {"status": "error", "message": "Division parameter is required"}
+        # Use either division or electorate parameter
+        division_name = division or electorate
+        if not division_name:
+            return {
+                "status": "error",
+                "message": "Division/electorate parameter is required",
+            }
 
-        polling_places = get_polling_places_for_division(division)
+        polling_places = get_polling_places_for_division(division_name)
         logger.info(
-            f"Retrieved {len(polling_places)} polling places for division {division}"
+            f"Retrieved {len(polling_places)} polling places for division {division_name}"
         )
 
         # Filter by booth if specified
@@ -788,7 +804,7 @@ async def get_booth_results(
             ],
         }
     except Exception as e:
-        logger.error(f"Error getting booth results for division {division}: {e}")
+        logger.error(f"Error getting booth results for division {division_name}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1264,34 +1280,23 @@ async def get_electorates():
     try:
         db = SessionLocal()
         try:
+            # Get unique divisions from polling places table using simple distinct
+            polling_divisions = db.query(PollingPlace.division_name).distinct().all()
+            divisions = [d[0] for d in polling_divisions if d[0]]
+
             # Get unique electorates from results table
             result_electorates = db.query(Result.electorate).distinct().all()
-            result_electorates = [e[0] for e in result_electorates if e[0]]
-            logger.info(f"Result electorates: {result_electorates}")
-
-            # Get unique divisions from polling places table
-            polling_divisions_query = db.query(PollingPlace.division_name).group_by(
-                PollingPlace.division_name
-            )
-            logger.info(f"Polling places SQL: {str(polling_divisions_query)}")
-            polling_divisions = polling_divisions_query.all()
-            logger.info(f"Raw polling divisions: {polling_divisions}")
-            polling_divisions = [d[0] for d in polling_divisions if d[0]]
-            logger.info(f"Processed polling divisions: {polling_divisions}")
+            electorates = [e[0] for e in result_electorates if e[0]]
 
             # Combine and deduplicate
-            all_electorates = list(set(result_electorates + polling_divisions))
-            all_electorates.sort()  # Sort alphabetically
-            logger.info(f"Final electorates list: {all_electorates}")
+            all_electorates = list(set(divisions + electorates))
+            all_electorates.sort()
 
             return {"status": "success", "electorates": all_electorates}
         finally:
             db.close()
     except Exception as e:
         logger.error(f"Error getting electorates: {e}")
-        import traceback
-
-        logger.error(f"Traceback: {traceback.format_exc()}")
         return {"status": "error", "message": str(e)}
 
 
@@ -1377,18 +1382,23 @@ class CandidateResponse(BaseModel):
 
 @app.get("/candidates")
 async def get_candidates(
-    division: Optional[str] = None, candidate_type: Optional[str] = None
+    division: Optional[str] = None,
+    electorate: Optional[str] = None,
+    candidate_type: Optional[str] = None,
 ):
     """
-    Get candidates, optionally filtered by division and/or candidate type
+    Get candidates, optionally filtered by division/electorate and/or candidate type.
+    Accepts either 'division' or 'electorate' parameter for backward compatibility.
     """
     try:
         db = SessionLocal()
         try:
             query = db.query(Candidate)
 
-            if division:
-                query = query.filter(Candidate.electorate == division)
+            # Use either division or electorate parameter
+            division_name = division or electorate
+            if division_name:
+                query = query.filter(Candidate.electorate == division_name)
             if candidate_type:
                 query = query.filter(Candidate.candidate_type == candidate_type)
 
@@ -1423,37 +1433,33 @@ async def get_polling_places(division: str):
     Get polling places for a specific division
     """
     try:
-        import sys
-        from pathlib import Path
+        db = SessionLocal()
+        try:
+            # Get polling places directly from the database using SQLAlchemy
+            polling_places = (
+                db.query(PollingPlace)
+                .filter(PollingPlace.division_name == division)
+                .order_by(PollingPlace.polling_place_name)
+                .all()
+            )
 
-        # Get the parent directory of the current file's directory
-        parent_dir = str(Path(__file__).parent.parent)
-        if parent_dir not in sys.path:
-            logger.info(f"Adding parent directory to Python path: {parent_dir}")
-            sys.path.append(parent_dir)
-
-        from common.booth_results_processor import get_polling_places_for_division
-
-        polling_places = get_polling_places_for_division(division)
-        logger.info(
-            f"Retrieved {len(polling_places)} polling places for division {division}"
-        )
-
-        return {
-            "status": "success",
-            "polling_places": [
-                {
-                    "id": p["id"],
-                    "polling_place_id": p["polling_place_id"],
-                    "polling_place_name": p["polling_place_name"],
-                    "address": p["address"],
-                    "status": p["status"],
-                    "wheelchair_access": p["wheelchair_access"],
-                    "data": json.loads(p["data"]) if p["data"] else {},
-                }
-                for p in polling_places
-            ],
-        }
+            return {
+                "status": "success",
+                "polling_places": [
+                    {
+                        "id": p.id,
+                        "polling_place_id": p.polling_place_id,
+                        "polling_place_name": p.polling_place_name,
+                        "address": p.address,
+                        "status": p.status,
+                        "wheelchair_access": p.wheelchair_access,
+                        "data": json.loads(p.data) if p.data else {},
+                    }
+                    for p in polling_places
+                ],
+            }
+        finally:
+            db.close()
     except Exception as e:
         logger.error(f"Error getting polling places for division {division}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

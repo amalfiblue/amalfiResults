@@ -31,6 +31,20 @@ class ImageProcessor:
         try:
             logger.info(f"Processing image from {source}")
 
+            # Validate and preprocess image
+            try:
+                image = Image.open(io.BytesIO(image_data))
+                # Convert to RGB if needed
+                if image.mode not in ("RGB", "L"):
+                    image = image.convert("RGB")
+                # Convert back to bytes in PNG format
+                img_byte_arr = io.BytesIO()
+                image.save(img_byte_arr, format="PNG")
+                image_data = img_byte_arr.getvalue()
+            except Exception as e:
+                logger.error(f"Error preprocessing image: {e}")
+                raise HTTPException(status_code=400, detail="Invalid image format")
+
             # Send image to Textract with TABLES + QUERIES
             logger.info("Sending image to Amazon Textract...")
             response = self.textract_client.analyze_document(

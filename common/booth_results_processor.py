@@ -837,6 +837,77 @@ def create_sample_2025_polling_places_data() -> List[Dict[str, Any]]:
         return []
 
 
+def add_prepoll_booths() -> bool:
+    """Add pre-poll booths for each division."""
+    try:
+        logger.info("Adding pre-poll booths for each division")
+        conn = sqlite3.connect(str(DB_PATH))
+        cursor = conn.cursor()
+
+        # Get all unique divisions
+        cursor.execute("SELECT DISTINCT division_name FROM polling_places")
+        divisions = [row[0] for row in cursor.fetchall()]
+        logger.info(f"Found {len(divisions)} divisions")
+
+        # For each division, add a pre-poll booth if it doesn't exist
+        for division in divisions:
+            prepoll_name = f"Pre-Poll-{division}"
+
+            # Check if pre-poll booth already exists
+            cursor.execute(
+                "SELECT COUNT(*) FROM polling_places WHERE division_name = ? AND polling_place_name = ?",
+                (division, prepoll_name),
+            )
+            exists = cursor.fetchone()[0] > 0
+
+            if not exists:
+                # Get max polling_place_id for this division
+                cursor.execute(
+                    "SELECT MAX(polling_place_id) FROM polling_places WHERE division_name = ?",
+                    (division,),
+                )
+                max_id = cursor.fetchone()[0] or 0
+                new_id = max_id + 1
+
+                # Insert pre-poll booth
+                cursor.execute(
+                    """
+                    INSERT INTO polling_places (
+                        state,
+                        division_id,
+                        division_name,
+                        polling_place_id,
+                        polling_place_name,
+                        address,
+                        status,
+                        wheelchair_access,
+                        data
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        "NSW",  # State
+                        0,  # Division ID (placeholder)
+                        division,
+                        new_id,
+                        prepoll_name,
+                        f"Pre-poll voting center for {division}",
+                        "ACTIVE",
+                        "Yes",
+                        json.dumps({"type": "pre-poll"}),
+                    ),
+                )
+                logger.info(f"Added pre-poll booth for {division}")
+
+        conn.commit()
+        conn.close()
+        logger.info("Successfully added pre-poll booths")
+        return True
+
+    except Exception as e:
+        logger.error(f"Error adding pre-poll booths: {e}")
+        return False
+
+
 def process_and_load_polling_places() -> bool:
     """
     Process and load polling places data.
@@ -865,91 +936,19 @@ def process_and_load_polling_places() -> bool:
 
         conn.close()
 
-        download_success = download_polling_places_data()
-        load_success = False
+        # Download and process polling places
+        success = download_polling_places_data()
+        if not success:
+            logger.error("Failed to download polling places data")
+            return False
 
-        if download_success:
-            logger.info("Successfully downloaded polling places data from AEC")
-            polling_places_path = (
-                DATA_DIR / "polling_places" / "polling-places-2025.csv"
-            )
-            if polling_places_path.exists():
-                polling_places = process_polling_places_file(polling_places_path)
-                if polling_places:
-                    logger.info(
-                        f"Processed {len(polling_places)} valid polling places from 2025 AEC data"
-                    )
-                    load_success = save_polling_places_to_database(polling_places)
-                    if not load_success:
-                        logger.error("Failed to save 2025 polling places to database")
-        else:
-            logger.warning("Failed to download 2025 polling places data from AEC")
-            logger.info("Using sample 2025 polling places data instead")
+        # Add pre-poll booths
+        success = add_prepoll_booths()
+        if not success:
+            logger.error("Failed to add pre-poll booths")
+            return False
 
-            sample_polling_places = create_sample_2025_polling_places_data()
-            if sample_polling_places:
-                logger.info(
-                    f"Created {len(sample_polling_places)} sample polling places for 2025"
-                )
-                load_success = save_polling_places_to_database(sample_polling_places)
-                if not load_success:
-                    logger.error(
-                        "Failed to save sample 2025 polling places to database"
-                    )
-            else:
-                logger.error("Failed to create sample 2025 polling places data")
-
-        conn = sqlite3.connect(db_path_str)
-        cursor = conn.cursor()
-
-        logger.info("Performing final cleanup to remove any empty records")
-        cursor.execute(
-            """
-        DELETE FROM polling_places 
-        WHERE state = '' OR division_id = 0 OR polling_place_id = 0 OR 
-              division_name = '' OR polling_place_name = ''
-        """
-        )
-        removed = cursor.rowcount
-        logger.info(f"Removed {removed} empty records during final cleanup")
-
-        cursor.execute(
-            """
-        SELECT COUNT(*) FROM polling_places 
-        WHERE state = '' OR division_id = 0 OR polling_place_id = 0 OR 
-              division_name = '' OR polling_place_name = ''
-        """
-        )
-        empty_count = cursor.fetchone()[0]
-        logger.info(f"Verified {empty_count} empty records remain after cleanup")
-
-        cursor.execute("SELECT COUNT(*) FROM polling_places")
-        total_count = cursor.fetchone()[0]
-        logger.info(f"Total of {total_count} polling places in database after loading")
-
-        cursor.execute(
-            """
-        SELECT polling_place_id, polling_place_name, division_name 
-        FROM polling_places 
-        WHERE polling_place_name LIKE '%North Sydney%' 
-           OR polling_place_name LIKE '%Cammeray%' 
-           OR polling_place_name LIKE '%Wollstonecraft%'
-        """
-        )
-        north_sydney_booths = cursor.fetchall()
-        logger.info(f"Found {len(north_sydney_booths)} North Sydney area booths:")
-        for booth in north_sydney_booths:
-            logger.info(f"  {booth[0]} | {booth[1]} | {booth[2]}")
-
-        cursor.execute("SELECT * FROM polling_places LIMIT 3")
-        sample_records = cursor.fetchall()
-        for record in sample_records:
-            logger.info(f"Sample record: {record}")
-
-        conn.commit()
-        conn.close()
-
-        return load_success and empty_count == 0
+        return True
     except Exception as e:
         logger.error(f"Error processing and loading polling places: {e}")
         import traceback

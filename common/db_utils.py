@@ -9,11 +9,14 @@ logger = logging.getLogger(__name__)
 def get_db_path() -> str:
     """Get the standardized database path."""
     is_docker = os.path.exists("/.dockerenv") or os.path.isdir("/app/data")
-    data_dir_path = (
-        "/app/data" if is_docker else str(Path(__file__).parent.parent.parent / "data")
-    )
+    if is_docker:
+        data_dir_path = "/app/data"
+    else:
+        # Get the absolute path to amalfiResults/data
+        data_dir_path = str(Path(__file__).parent.parent / "data")
+
     db_path = str(Path(data_dir_path) / "results.db")
-    logger.info(f"Using database path: {db_path}")
+    logger.error(f"DB PATH BEING USED: {db_path}")  # Debug log
     return db_path
 
 
@@ -40,4 +43,10 @@ def ensure_database_exists() -> None:
 def get_sqlalchemy_url() -> str:
     """Get the SQLAlchemy URL for the database."""
     db_path = get_db_path()
-    return f"sqlite:///{db_path}"
+    # Convert to absolute path
+    abs_path = os.path.abspath(db_path)
+    logger.error(f"ABSOLUTE PATH BEING USED: {abs_path}")
+    # SQLite URLs need three slashes for relative paths, four for absolute
+    if abs_path.startswith("/"):
+        return f"sqlite:///{abs_path}"  # Three slashes for absolute paths on Unix
+    return f"sqlite:///{abs_path}"  # Three slashes for relative paths
