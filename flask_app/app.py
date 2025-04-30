@@ -15,6 +15,7 @@ from flask import (
     flash,
     session,
     get_flashed_messages,
+    g,
 )
 from flask_socketio import SocketIO, emit
 from flask_login import (
@@ -781,9 +782,23 @@ def api_notify():
             )
 
 
-@app.route("/set-default-division/<division>")
-def set_default_division(division):
+@app.before_request
+def before_request():
+    """Set up global variables and session data"""
+    g.is_admin = current_user.is_authenticated and current_user.is_admin
+
+    # Set default division from session if not set
+    if "default_division" not in session and current_user.is_authenticated:
+        session["default_division"] = current_user.division or "Warringah"
+
+    # Make selected division available to templates
+    g.selected_division = session.get("default_division", "Warringah")
+
+
+@app.route("/set-default-division")
+def set_default_division():
     """Set the default division for the user session"""
+    division = request.args.get("division")
     next_url = request.args.get("next", url_for("get_dashboard"))
 
     if division:
@@ -791,8 +806,6 @@ def set_default_division(division):
         flash(f"Default division set to {division}", "success")
 
     return redirect(next_url)
-
-    return jsonify({"status": "success"})
 
 
 @app.route("/login", methods=["GET", "POST"])

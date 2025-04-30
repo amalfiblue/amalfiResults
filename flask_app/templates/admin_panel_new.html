@@ -15,7 +15,7 @@
                             <form id="division-form" method="get" action="/admin/panel">
                                 <div class="mb-3">
                                     <label for="division" class="form-label">Select Division</label>
-                                    <select class="form-select" id="division" name="division" onchange="this.form.submit()">
+                                    <select class="form-select" id="division" name="division">
                                         <option value="">Select Division</option>
                                         <!-- Electorates will be loaded via JavaScript -->
                                     </select>
@@ -105,6 +105,15 @@
     // Load electorates from FastAPI when the page loads
     document.addEventListener('DOMContentLoaded', function() {
         loadElectorates();
+        
+        // Set up division change handler
+        document.getElementById('division').addEventListener('change', function() {
+            const selectedDivision = this.value;
+            if (selectedDivision) {
+                // Update the page URL with the selected division
+                window.location.href = `/admin/panel/${encodeURIComponent(selectedDivision)}`;
+            }
+        });
     });
     
     // Function to load electorates from FastAPI

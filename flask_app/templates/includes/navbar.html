@@ -33,13 +33,13 @@
                 {% endif %}
             </ul>
             <div class="ms-auto">
-                {% if selected_electorate %}
-                <div class="dropdown">
+                {% if current_user.is_authenticated %}
+                <div class="dropdown me-3">
                     <button class="btn btn-outline-light dropdown-toggle" type="button" id="divisionDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                        {{ selected_electorate }}
+                        {{ g.selected_division }}
                     </button>
                     <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="divisionDropdown" id="electorate-dropdown">
-                        <li><h6 class="dropdown-header">Set Default Division</h6></li>
+                        <li><h6 class="dropdown-header">Set Division</h6></li>
                         <!-- Electorates will be loaded via JavaScript -->
                     </ul>
                 </div>
@@ -50,13 +50,6 @@
 </nav>
 
 <script>
-    // Load electorates from FastAPI when the page loads
-    document.addEventListener('DOMContentLoaded', function() {
-        if (document.getElementById('electorate-dropdown')) {
-            loadElectorates();
-        }
-    });
-    
     // Function to load electorates from FastAPI
     function loadElectorates() {
         fetch('/api/electorates', {
@@ -82,11 +75,11 @@
             console.error('Error loading electorates:', error);
         });
     }
-    
+
     // Function to update the electorates dropdown
     function updateElectoratesDropdown(electorates) {
         const dropdown = document.getElementById('electorate-dropdown');
-        const currentValue = '{{ selected_electorate }}';
+        const currentValue = '{{ g.selected_division }}';
         
         // Keep the header
         const header = dropdown.querySelector('.dropdown-header').parentElement;
@@ -104,4 +97,7 @@
             dropdown.appendChild(li);
         });
     }
+
+    // Load electorates when the page loads
+    document.addEventListener('DOMContentLoaded', loadElectorates);
 </script>
