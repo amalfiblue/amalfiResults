@@ -1004,25 +1004,23 @@ async def api_result_detail(result_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/results/electorate/{electorate}")
-async def get_electorate_results(electorate: str):
-    logger.info(f"Received request for results in electorate: {electorate}")
+@app.get("/results/division/{division}")
+async def get_division_results(division: str):
+    logger.info(f"Received request for results in division: {division}")
     try:
         # Connect to the database
         db = SessionLocal()
         logger.info("Connected to database")
 
-        # Get all results for the electorate
+        # Get all results for the division
         results = (
             db.query(Result)
-            .filter(Result.electorate == electorate, Result.is_reviewed == 1)
+            .filter(Result.electorate == division, Result.is_reviewed == 1)
             .order_by(Result.timestamp.desc())
             .all()
         )
 
-        logger.info(
-            f"Found {len(results)} reviewed results for electorate {electorate}"
-        )
+        logger.info(f"Found {len(results)} reviewed results for division {division}")
 
         # Process results
         primary_votes = {}
@@ -1098,11 +1096,186 @@ async def get_electorate_results(electorate: str):
             "last_updated": datetime.now(timezone.utc).isoformat(),
         }
     except Exception as e:
-        logger.error(f"Error getting results for electorate {electorate}: {str(e)}")
+        logger.error(f"Error getting results for division {division}: {str(e)}")
         return {"status": "error", "message": str(e)}
     finally:
         db.close()
         logger.info("Database connection closed")
+
+
+@app.get("/electorates")
+async def get_electorates():
+    """
+    Get all unique electorates from the database
+    """
+    try:
+        db = SessionLocal()
+        try:
+            # Get unique electorates from results table
+            electorates = db.query(Result.electorate).distinct().all()
+            electorates = [
+                e[0] for e in electorates if e[0]
+            ]  # Extract from tuples and filter None
+
+            return {"status": "success", "electorates": electorates}
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error getting electorates: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/tcp-candidates/division/{division}")
+async def get_tcp_candidates(division: str):
+    """
+    Get TCP candidates for a specific division
+    """
+    try:
+        db = SessionLocal()
+        try:
+            candidates = db.query(TCPCandidate).filter_by(electorate=division).all()
+            return {
+                "status": "success",
+                "candidates": [
+                    {"id": c.id, "candidate_name": c.candidate_name, "party": c.party}
+                    for c in candidates
+                ],
+            }
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error getting TCP candidates for {division}: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/tcp-candidates/division/{division}")
+async def set_tcp_candidates(division: str, request: Request):
+    """
+    Set TCP candidates for a specific division
+    """
+    try:
+        data = await request.json()
+        candidate_ids = data.get("candidate_ids", [])
+
+        if len(candidate_ids) != 2:
+            return {
+                "status": "error",
+                "message": "Exactly two candidates must be selected",
+            }
+
+        db = SessionLocal()
+        try:
+            # Delete existing TCP candidates for this division
+            db.query(TCPCandidate).filter_by(electorate=division).delete()
+
+            # Get candidate details
+            candidates = (
+                db.query(Candidate).filter(Candidate.id.in_(candidate_ids)).all()
+            )
+
+            # Create new TCP candidates
+            for candidate in candidates:
+                tcp_candidate = TCPCandidate(
+                    electorate=division,
+                    candidate_name=candidate.candidate_name,
+                    party=candidate.party,
+                )
+                db.add(tcp_candidate)
+
+            db.commit()
+            return {
+                "status": "success",
+                "message": "TCP candidates updated successfully",
+            }
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error setting TCP candidates for {division}: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/candidates")
+async def get_candidates(
+    electorate: Optional[str] = None, candidate_type: Optional[str] = None
+):
+    """
+    Get candidates, optionally filtered by electorate and/or candidate type
+    """
+    try:
+        db = SessionLocal()
+        try:
+            query = db.query(Candidate)
+
+            if electorate:
+                query = query.filter(Candidate.electorate == electorate)
+            if candidate_type:
+                query = query.filter(Candidate.candidate_type == candidate_type)
+
+            candidates = query.order_by(Candidate.ballot_position).all()
+
+            return {
+                "status": "success",
+                "candidates": [
+                    {
+                        "id": c.id,
+                        "candidate_name": c.candidate_name,
+                        "party": c.party,
+                        "electorate": c.electorate,
+                        "ballot_position": c.ballot_position,
+                        "candidate_type": c.candidate_type,
+                        "state": c.state,
+                        "data": json.loads(c.data) if c.data else {},
+                    }
+                    for c in candidates
+                ],
+            }
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error getting candidates: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/polling-places/division/{division}")
+async def get_polling_places(division: str):
+    """
+    Get polling places for a specific division
+    """
+    try:
+        import sys
+        from pathlib import Path
+
+        # Get the parent directory of the current file's directory
+        parent_dir = str(Path(__file__).parent.parent)
+        if parent_dir not in sys.path:
+            logger.info(f"Adding parent directory to Python path: {parent_dir}")
+            sys.path.append(parent_dir)
+
+        from utils.booth_results_processor import get_polling_places_for_division
+
+        polling_places = get_polling_places_for_division(division)
+        logger.info(
+            f"Retrieved {len(polling_places)} polling places for division {division}"
+        )
+
+        return {
+            "status": "success",
+            "polling_places": [
+                {
+                    "id": p["id"],
+                    "polling_place_id": p["polling_place_id"],
+                    "polling_place_name": p["polling_place_name"],
+                    "address": p["address"],
+                    "status": p["status"],
+                    "wheelchair_access": p["wheelchair_access"],
+                    "data": json.loads(p["data"]) if p["data"] else {},
+                }
+                for p in polling_places
+            ],
+        }
+    except Exception as e:
+        logger.error(f"Error getting polling places for division {division}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
