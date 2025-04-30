@@ -3,7 +3,7 @@
 {% block title %}Electorate Dashboard - Amalfi Results{% endblock %}
 
 {% block extra_css %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
     .bar-chart-container {
         height: 300px;
@@ -75,6 +75,19 @@
                                             <!-- Will be populated by JavaScript -->
                                         </tbody>
                                     </table>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Add new section for net TCP position -->
+                        <div class="row mt-4">
+                            <div class="col-md-12">
+                                <h5>Net Two-Candidate Preferred Position</h5>
+                                <div class="bar-chart-container" style="height: 120px;">
+                                    <canvas id="net-tcp-position-chart"></canvas>
+                                </div>
+                                <div id="tcp-summary" class="mt-3">
+                                    <!-- Will be populated by JavaScript -->
                                 </div>
                             </div>
                         </div>

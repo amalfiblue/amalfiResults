@@ -30,6 +30,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from pydantic import BaseModel
 from utils.image_processor import ImageProcessor
 from collections import defaultdict
+from flask_app.utils.db_utils import ensure_database_exists, get_sqlalchemy_url
 
 load_dotenv()
 
@@ -48,12 +49,9 @@ app.add_middleware(
 
 is_docker = os.path.exists("/.dockerenv") or os.path.isdir("/app/data")
 data_dir_path = "/app/data" if is_docker else str(Path(__file__).parent.parent / "data")
-SQLALCHEMY_DATABASE_URL = os.environ.get(
-    "DATABASE_URL", f"sqlite:///{data_dir_path}/results.db"
-)
+SQLALCHEMY_DATABASE_URL = get_sqlalchemy_url()
 logger.info(f"Running in {'Docker' if is_docker else 'local'} environment")
-logger.info(f"Using database path: {data_dir_path}/results.db")
-logger.info(f"Database URL: {SQLALCHEMY_DATABASE_URL}")
+logger.info(f"Using database path: {SQLALCHEMY_DATABASE_URL}")
 logger.info(f"Database file exists: {os.path.exists(f'{data_dir_path}/results.db')}")
 
 data_dir = Path(data_dir_path)
@@ -77,16 +75,14 @@ logger.info(
 from utils.booth_results_processor import process_and_load_booth_results
 from utils.candidate_data_loader import process_and_load_candidate_data
 
-# Initialize database engine and session
+# Initialize database
+ensure_database_exists()
+SQLALCHEMY_DATABASE_URL = get_sqlalchemy_url()
+
+# Create database engine and session
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
-
-# Create database tables
-Base.metadata.create_all(bind=engine)
-
-# Initialize image processor
-image_processor = ImageProcessor()
 
 
 class Result(Base):
@@ -99,6 +95,24 @@ class Result(Base):
     image_url = Column(String, index=True)
     is_reviewed = Column(Integer, default=0)  # SQLite stores BOOLEAN as INTEGER
     reviewer = Column(String)
+    data = Column(String)  # SQLite stores JSON as TEXT
+    aec_booth_name = Column(String)  # Added for the AEC booth name
+
+
+class PollingPlace(Base):
+    __tablename__ = "polling_places"
+
+    id = Column(Integer, primary_key=True, index=True)
+    state = Column(String, nullable=False)
+    division_id = Column(Integer, nullable=False)
+    division_name = Column(String, nullable=False)
+    polling_place_id = Column(Integer, nullable=False)
+    polling_place_name = Column(String, nullable=False)
+    address = Column(String)
+    latitude = Column(Float)
+    longitude = Column(Float)
+    status = Column(String)
+    wheelchair_access = Column(String)
     data = Column(String)  # SQLite stores JSON as TEXT
 
 
@@ -131,6 +145,31 @@ class ResultResponse(BaseModel):
     electorate: Optional[str] = None
     booth_name: Optional[str] = None
     data: Optional[Dict[str, Any]] = None
+
+
+class Candidate(Base):
+    __tablename__ = "candidates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    candidate_name = Column(String, index=True)
+    party = Column(String)
+    electorate = Column(String, index=True)
+    ballot_position = Column(Integer)
+    candidate_type = Column(String)
+    state = Column(String)
+    data = Column(String)  # JSON data as string
+
+
+# Create database tables
+Base.metadata.create_all(bind=engine)
+
+# Create polling places table
+from utils.booth_results_processor import create_polling_places_table
+
+create_polling_places_table()
+
+# Initialize image processor
+image_processor = ImageProcessor()
 
 
 def create_candidates_table() -> None:
@@ -276,12 +315,14 @@ def extract_tally_sheet_data(
     # Step 4: Parse totals from bottom
     for idx, row in row_map.items():
         row_text = " ".join(row).upper()
-        for field in ["FORMAL", "INFORMAL", "TOTAL"]:
-            if field in row_text:
-                nums = [int(x) for x in row if x.isdigit()]
-                if nums:
-                    key = field.lower()
-                    result["totals"][key] = nums[0]
+        nums = [int(x) for x in row if x.isdigit()]
+
+        if "TOTAL FORMAL" in row_text and nums:
+            result["totals"]["formal"] = nums[0]
+        elif "INFORMAL" in row_text and nums:
+            result["totals"]["informal"] = nums[0]
+        elif "TOTAL VOTES" in row_text and nums:
+            result["totals"]["total"] = nums[0]
 
     # Step 5: Fallbacks
     if result["totals"]["formal"] is None:
@@ -837,8 +878,35 @@ async def get_result(result_id: int):
             # Extract primary votes
             primary_votes = result_data.get("primary_votes", {})
 
+            # Get candidates with ballot positions
+            candidates = (
+                db.query(Candidate).filter_by(electorate=result.electorate).all()
+            )
+            candidate_positions = {
+                c.candidate_name: c.ballot_position for c in candidates
+            }
+
+            # Sort primary votes by ballot position
+            sorted_primary_votes = {}
+            for candidate in sorted(
+                primary_votes.keys(), key=lambda x: candidate_positions.get(x, 999)
+            ):
+                sorted_primary_votes[candidate] = primary_votes[candidate]
+
             # Extract TCP votes
             tcp_votes = result_data.get("two_candidate_preferred", {})
+
+            # Sort TCP votes by ballot position
+            sorted_tcp_votes = {}
+            for tcp_candidate in tcp_votes:
+                sorted_tcp_votes[tcp_candidate] = {}
+                for candidate in sorted(
+                    tcp_votes[tcp_candidate].keys(),
+                    key=lambda x: candidate_positions.get(x, 999),
+                ):
+                    sorted_tcp_votes[tcp_candidate][candidate] = tcp_votes[
+                        tcp_candidate
+                    ][candidate]
 
             # Extract totals
             totals = result_data.get("totals", {})
@@ -881,8 +949,8 @@ async def get_result(result_id: int):
                     "booth_name": result.booth_name,
                     "image_url": result.image_url,
                     "data": {
-                        "primary_votes": primary_votes,
-                        "two_candidate_preferred": tcp_votes,
+                        "primary_votes": sorted_primary_votes,
+                        "two_candidate_preferred": sorted_tcp_votes,
                         "totals": totals,
                     },
                     "polling_places": polling_places,
@@ -905,11 +973,17 @@ async def review_result(result_id: int, request: Request):
     try:
         data = await request.json()
         action = data.get("action")
+        aec_booth_name = data.get(
+            "booth_name"
+        )  # Get the AEC booth name from the request
 
         if action not in ["approve", "reject"]:
             raise HTTPException(
                 status_code=400, detail="Action must be 'approve' or 'reject'"
             )
+
+        if not aec_booth_name:
+            raise HTTPException(status_code=400, detail="AEC booth name is required")
 
         db = SessionLocal()
         try:
@@ -933,6 +1007,7 @@ async def review_result(result_id: int, request: Request):
             result.reviewer = (
                 "Admin"  # You might want to get this from the request or session
             )
+            result.aec_booth_name = aec_booth_name  # Set the AEC booth name
 
             db.commit()
 
@@ -951,7 +1026,7 @@ async def review_result(result_id: int, request: Request):
                             "result_id": result.id,
                             "timestamp": result.timestamp.isoformat(),
                             "electorate": result.electorate,
-                            "booth_name": result.booth_name,
+                            "booth_name": result.aec_booth_name,  # Use AEC booth name in notification
                             "action": "review",
                             "approved": (action == "approve"),
                         },
@@ -1080,12 +1155,15 @@ async def get_division_results(division: str):
 
                 # Aggregate TCP votes
                 if "two_candidate_preferred" in result_data:
-                    for candidate, votes in result_data[
+                    for tcp_candidate, candidate_votes in result_data[
                         "two_candidate_preferred"
                     ].items():
-                        if candidate not in tcp_votes:
-                            tcp_votes[candidate] = 0
-                        tcp_votes[candidate] += votes
+                        for candidate, votes in candidate_votes.items():
+                            if candidate not in tcp_votes:
+                                tcp_votes[candidate] = {}
+                            if tcp_candidate not in tcp_votes[candidate]:
+                                tcp_votes[candidate][tcp_candidate] = 0
+                            tcp_votes[candidate][tcp_candidate] += votes
 
                 booth_results.append(
                     {
@@ -1106,7 +1184,37 @@ async def get_division_results(division: str):
         primary_votes_array = [
             {"candidate": k, "votes": v} for k, v in primary_votes.items()
         ]
-        tcp_votes_array = [{"candidate": k, "votes": v} for k, v in tcp_votes.items()]
+
+        # Convert TCP votes to array format
+        tcp_votes_array = []
+        tcp_candidates = set()
+
+        # First, collect all TCP candidates
+        for candidate_votes in tcp_votes.values():
+            tcp_candidates.update(candidate_votes.keys())
+
+        # Convert to list and sort
+        tcp_candidates = sorted(list(tcp_candidates))
+
+        # Create array with vote distributions
+        for candidate, tcp_distribution in tcp_votes.items():
+            # Skip TCP candidates themselves
+            if candidate in tcp_candidates:
+                continue
+
+            entry = {
+                "candidate": candidate,
+                "primary_votes": primary_votes.get(candidate, 0),
+                "distributions": {},
+            }
+
+            # Add distribution to each TCP candidate
+            for tcp_candidate in tcp_candidates:
+                entry["distributions"][tcp_candidate] = tcp_distribution.get(
+                    tcp_candidate, 0
+                )
+
+            tcp_votes_array.append(entry)
 
         # Calculate percentages
         total_primary_votes = sum(primary_votes.values())
@@ -1114,10 +1222,15 @@ async def get_division_results(division: str):
             for vote in primary_votes_array:
                 vote["percentage"] = (vote["votes"] / total_primary_votes) * 100
 
-        total_tcp_votes = sum(tcp_votes.values())
-        if total_tcp_votes > 0:
-            for vote in tcp_votes_array:
-                vote["percentage"] = (vote["votes"] / total_tcp_votes) * 100
+        # Calculate TCP percentages
+        for entry in tcp_votes_array:
+            total = entry["primary_votes"]
+            if total > 0:
+                for tcp_candidate, votes in entry["distributions"].items():
+                    entry["distributions"][tcp_candidate] = {
+                        "votes": votes,
+                        "percentage": (votes / total) * 100,
+                    }
 
         logger.info(f"Successfully processed {len(booth_results)} booth results")
 
@@ -1143,22 +1256,39 @@ async def get_division_results(division: str):
 @app.get("/electorates")
 async def get_electorates():
     """
-    Get all unique electorates from the database
+    Get all unique electorates/divisions from the database
     """
     try:
         db = SessionLocal()
         try:
             # Get unique electorates from results table
-            electorates = db.query(Result.electorate).distinct().all()
-            electorates = [
-                e[0] for e in electorates if e[0]
-            ]  # Extract from tuples and filter None
+            result_electorates = db.query(Result.electorate).distinct().all()
+            result_electorates = [e[0] for e in result_electorates if e[0]]
+            logger.info(f"Result electorates: {result_electorates}")
 
-            return {"status": "success", "electorates": electorates}
+            # Get unique divisions from polling places table
+            polling_divisions_query = db.query(PollingPlace.division_name).group_by(
+                PollingPlace.division_name
+            )
+            logger.info(f"Polling places SQL: {str(polling_divisions_query)}")
+            polling_divisions = polling_divisions_query.all()
+            logger.info(f"Raw polling divisions: {polling_divisions}")
+            polling_divisions = [d[0] for d in polling_divisions if d[0]]
+            logger.info(f"Processed polling divisions: {polling_divisions}")
+
+            # Combine and deduplicate
+            all_electorates = list(set(result_electorates + polling_divisions))
+            all_electorates.sort()  # Sort alphabetically
+            logger.info(f"Final electorates list: {all_electorates}")
+
+            return {"status": "success", "electorates": all_electorates}
         finally:
             db.close()
     except Exception as e:
         logger.error(f"Error getting electorates: {e}")
+        import traceback
+
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return {"status": "error", "message": str(e)}
 
 
@@ -1229,19 +1359,6 @@ async def set_tcp_candidates(division: str, request: Request):
     except Exception as e:
         logger.error(f"Error setting TCP candidates for {division}: {e}")
         return {"status": "error", "message": str(e)}
-
-
-class Candidate(Base):
-    __tablename__ = "candidates"
-
-    id = Column(Integer, primary_key=True, index=True)
-    candidate_name = Column(String, index=True)
-    party = Column(String)
-    electorate = Column(String, index=True)
-    ballot_position = Column(Integer)
-    candidate_type = Column(String)
-    state = Column(String)
-    data = Column(String)  # JSON data as string
 
 
 class CandidateResponse(BaseModel):

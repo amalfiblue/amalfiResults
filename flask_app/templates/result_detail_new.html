@@ -66,30 +66,8 @@
                 <div class="card-header">
                     <h3 class="card-title">Primary Votes</h3>
                 </div>
-                <div class="card-body">
-                    {% set primary_votes = result.get_primary_votes() %}
-                    {% if primary_votes %}
-                        <div class="table-responsive">
-                            <table class="table table-striped">
-                                <thead>
-                                    <tr>
-                                        <th>Candidate</th>
-                                        <th>Primary Votes</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for candidate, votes in primary_votes.items() %}
-                                    <tr>
-                                        <td>{{ candidate }}</td>
-                                        <td>{{ votes }}</td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    {% else %}
-                        <div class="alert alert-info">No primary vote data available.</div>
-                    {% endif %}
+                <div class="card-body" id="primary-votes-card">
+                    <!-- Will be populated by JavaScript -->
                 </div>
             </div>
         </div>
@@ -101,43 +79,8 @@
                 <div class="card-header">
                     <h3 class="card-title">Two-Candidate Preferred</h3>
                 </div>
-                <div class="card-body">
-                    {% set tcp_votes = result.get_tcp_votes() %}
-                    {% if tcp_votes %}
-                        <div class="table-responsive">
-                            <table class="table table-striped">
-                                <thead>
-                                    <tr>
-                                        <th>Candidate</th>
-                                        {% for tcp_candidate in tcp_votes.keys() %}
-                                            <th>{{ tcp_candidate }}</th>
-                                        {% endfor %}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% set all_candidates = [] %}
-                                    {% for tcp_candidate, votes in tcp_votes.items() %}
-                                        {% for candidate in votes.keys() %}
-                                            {% if candidate not in all_candidates %}
-                                                {% set _ = all_candidates.append(candidate) %}
-                                            {% endif %}
-                                        {% endfor %}
-                                    {% endfor %}
-                                    
-                                    {% for candidate in all_candidates %}
-                                    <tr>
-                                        <td>{{ candidate }}</td>
-                                        {% for tcp_candidate in tcp_votes.keys() %}
-                                            <td>{{ tcp_votes[tcp_candidate].get(candidate, '-') }}</td>
-                                        {% endfor %}
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    {% else %}
-                        <div class="alert alert-info">No two-candidate preferred data available.</div>
-                    {% endif %}
+                <div class="card-body" id="tcp-votes-card">
+                    <!-- Will be populated by JavaScript -->
                 </div>
             </div>
         </div>
@@ -150,7 +93,6 @@
                     <h3 class="card-title">Vote Totals</h3>
                 </div>
                 <div class="card-body">
-                    {% set totals = result.get_totals() %}
                     <div class="table-responsive">
                         <table class="table table-striped">
                             <thead>
@@ -159,19 +101,8 @@
                                     <th>Count</th>
                                 </tr>
                             </thead>
-                            <tbody>
-                                <tr>
-                                    <td>Formal Votes</td>
-                                    <td>{{ totals.formal or 'Unknown' }}</td>
-                                </tr>
-                                <tr>
-                                    <td>Informal Votes</td>
-                                    <td>{{ totals.informal or 'Unknown' }}</td>
-                                </tr>
-                                <tr>
-                                    <td>Total Votes</td>
-                                    <td>{{ totals.total or 'Unknown' }}</td>
-                                </tr>
+                            <tbody id="vote-totals-body">
+                                <!-- Will be populated by JavaScript -->
                             </tbody>
                         </table>
                     </div>
@@ -202,197 +133,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/main.js') }}"></script>
-<script>
-    // Load result data directly from FastAPI when the page loads
-    document.addEventListener('DOMContentLoaded', function() {
-        const resultId = {{ result.id }};
-        loadResultData(resultId);
-    });
-    
-    // Function to load result data from FastAPI
-    function loadResultData(resultId) {
-        fetch(`/api/results/${resultId}`, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json',
-            }
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.status === 'success') {
-                updateResultDisplay(data.result);
-            } else {
-                console.error('Error loading result data:', data.message || 'Unknown error');
-            }
-        })
-        .catch(error => {
-            console.error('Error loading result data:', error);
-        });
-    }
-    
-    // Function to update the result display with data from FastAPI
-    function updateResultDisplay(result) {
-        // Update metadata
-        document.querySelector('li.breadcrumb-item.active').textContent = `Result #${result.id}`;
-        
-        // Update metadata table
-        const metadataTable = document.querySelector('.col-md-6:first-child table tbody');
-        metadataTable.innerHTML = `
-            <tr>
-                <th>ID</th>
-                <td>${result.id}</td>
-            </tr>
-            <tr>
-                <th>Timestamp</th>
-                <td>${new Date(result.timestamp).toLocaleString()}</td>
-            </tr>
-            <tr>
-                <th>Electorate</th>
-                <td>${result.electorate || 'Unknown'}</td>
-            </tr>
-            <tr>
-                <th>Booth Name</th>
-                <td>${result.booth_name || 'Unknown'}</td>
-            </tr>
-        `;
-        
-        // Update image
-        const imageCol = document.querySelector('.col-md-6:nth-child(2)');
-        if (result.image_url) {
-            imageCol.innerHTML = `
-                <div class="text-center">
-                    <h3>Original Image</h3>
-                    <a href="${result.image_url}" target="_blank" class="btn btn-outline-primary">View Original Image</a>
-                </div>
-            `;
-        } else {
-            imageCol.innerHTML = `
-                <div class="alert alert-info">No image available for this result.</div>
-            `;
-        }
-        
-        // Update primary votes
-        updatePrimaryVotes(result.data?.primary_votes || {});
-        
-        // Update TCP votes
-        updateTCPVotes(result.data?.tcp_votes || {});
-        
-        // Update vote totals
-        updateVoteTotals(result.data?.totals || {});
-        
-        // Update raw data
-        const rawDataPre = document.querySelector('#rawData pre');
-        if (rawDataPre) {
-            rawDataPre.textContent = JSON.stringify(result.data, null, 2);
-        }
-    }
-    
-    // Function to update primary votes table
-    function updatePrimaryVotes(primaryVotes) {
-        const primaryVotesCard = document.querySelector('.card:nth-of-type(2) .card-body');
-        
-        if (Object.keys(primaryVotes).length > 0) {
-            let tableHtml = `
-                <div class="table-responsive">
-                    <table class="table table-striped">
-                        <thead>
-                            <tr>
-                                <th>Candidate</th>
-                                <th>Primary Votes</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-            `;
-            
-            for (const [candidate, votes] of Object.entries(primaryVotes)) {
-                tableHtml += `
-                    <tr>
-                        <td>${candidate}</td>
-                        <td>${votes}</td>
-                    </tr>
-                `;
-            }
-            
-            tableHtml += `
-                        </tbody>
-                    </table>
-                </div>
-            `;
-            
-            primaryVotesCard.innerHTML = tableHtml;
-        } else {
-            primaryVotesCard.innerHTML = `
-                <div class="alert alert-info">No primary vote data available.</div>
-            `;
-        }
-    }
-    
-    // Function to update TCP votes table
-    function updateTCPVotes(tcpVotes) {
-        const tcpVotesCard = document.querySelector('.card:nth-of-type(3) .card-body');
-        
-        if (Object.keys(tcpVotes).length > 0) {
-            let tableHtml = `
-                <div class="table-responsive">
-                    <table class="table table-striped">
-                        <thead>
-                            <tr>
-                                <th>Candidate</th>
-                                <th>TCP Votes</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-            `;
-            
-            for (const [candidate, votes] of Object.entries(tcpVotes)) {
-                tableHtml += `
-                    <tr>
-                        <td>${candidate}</td>
-                        <td>${votes}</td>
-                    </tr>
-                `;
-            }
-            
-            tableHtml += `
-                        </tbody>
-                    </table>
-                </div>
-            `;
-            
-            tcpVotesCard.innerHTML = tableHtml;
-        } else {
-            tcpVotesCard.innerHTML = `
-                <div class="alert alert-info">No two-candidate preferred data available.</div>
-            `;
-        }
-    }
-    
-    // Function to update vote totals table
-    function updateVoteTotals(totals) {
-        const totalsTable = document.querySelector('.card:nth-of-type(4) .card-body table tbody');
-        
-        if (totalsTable) {
-            totalsTable.innerHTML = `
-                <tr>
-                    <td>Formal Votes</td>
-                    <td>${totals.formal || 'Unknown'}</td>
-                </tr>
-                <tr>
-                    <td>Informal Votes</td>
-                    <td>${totals.informal || 'Unknown'}</td>
-                </tr>
-                <tr>
-                    <td>Total Votes</td>
-                    <td>${totals.total || 'Unknown'}</td>
-                </tr>
-            `;
-        }
-    }
-</script>
+<script src="{{ url_for('static', filename='js/result_detail.js') }}"></script>
 {% endblock %}

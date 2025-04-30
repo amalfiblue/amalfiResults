@@ -40,10 +40,20 @@
 
 {% block extra_js %}
 <script>
+    // FastAPI server URL
+    const FASTAPI_URL = 'http://localhost:8000';  // Update this if your FastAPI server is on a different URL
+
     // Load results directly from FastAPI when the page loads
     document.addEventListener('DOMContentLoaded', function() {
         loadResults();
     });
+    
+    // Function to get the full image URL
+    function getFullImageUrl(relativeUrl) {
+        if (!relativeUrl) return null;
+        if (relativeUrl.startsWith('http')) return relativeUrl;
+        return `${FASTAPI_URL}${relativeUrl}`;
+    }
     
     // Function to load results from FastAPI
     function loadResults() {
@@ -107,7 +117,7 @@
                     <td>${result.booth_name || 'Unknown'}</td>
                     <td>
                         ${result.image_url ? 
-                            `<a href="${result.image_url}" target="_blank">View Image</a>` : 
+                            `<a href="${getFullImageUrl(result.image_url)}" target="_blank">View Image</a>` : 
                             'No image'}
                     </td>
                     <td>

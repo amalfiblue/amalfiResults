@@ -24,6 +24,12 @@
                     <span class="badge bg-warning">Pending Review</span>
                 </div>
                 <div class="card-body">
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ category }}">{{ message }}</div>
+                        {% endfor %}
+                    {% endif %}
+                    
                     <div class="row mb-4">
                         <div class="col-md-6">
                             <h4>Metadata</h4>
@@ -31,19 +37,19 @@
                                 <tbody>
                                     <tr>
                                         <th>ID</th>
-                                        <td>{{ result.id }}</td>
+                                        <td id="result-id"></td>
                                     </tr>
                                     <tr>
                                         <th>Timestamp</th>
-                                        <td>{{ result.timestamp }}</td>
+                                        <td id="result-timestamp"></td>
                                     </tr>
                                     <tr>
                                         <th>Electorate</th>
-                                        <td>{{ result.electorate or 'Unknown' }}</td>
+                                        <td id="result-electorate"></td>
                                     </tr>
                                     <tr>
                                         <th>Booth Name</th>
-                                        <td>{{ result.booth_name or 'Unknown' }}</td>
+                                        <td id="result-booth-name"></td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -53,8 +59,8 @@
                                 <input type="hidden" id="resultId" value="{{ result.id }}">
                                 <input type="hidden" id="electorate" value="{{ result.electorate }}">
                                 <div class="mb-4">
-                                    <label for="booth_name" class="block text-sm font-medium text-gray-700">Booth Name</label>
-                                    <select id="booth_name" name="booth_name" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                                    <label for="booth_name" class="form-label">Select AEC Polling Place</label>
+                                    <select id="booth_name" name="booth_name" class="form-select" required>
                                         <option value="">Select a polling place...</option>
                                     </select>
                                 </div>
@@ -76,18 +82,12 @@
                                     <h4>Original Tally Sheet Image</h4>
                                 </div>
                                 <div class="card-body text-center">
-                                    {% if result.image_url %}
-                                        <div class="mb-3">
-                                            <a href="http://localhost:8000{{ result.image_url }}" target="_blank" class="btn btn-outline-primary mb-3">
-                                                Open Image in New Tab
-                                            </a>
-                                        </div>
-                                        <img src="http://localhost:8000{{ result.image_url }}" alt="Tally Sheet" class="img-fluid border" style="max-height: 800px;">
-                                    {% else %}
-                                        <div class="alert alert-warning">
-                                            No image available for this result
-                                        </div>
-                                    {% endif %}
+                                    <div class="mb-3">
+                                        <a id="image-link" href="#" target="_blank" class="btn btn-outline-primary mb-3">
+                                            Open Image in New Tab
+                                        </a>
+                                    </div>
+                                    <img id="result-image" src="" alt="Tally Sheet" class="img-fluid border review-image">
                                 </div>
                             </div>
                         </div>
@@ -96,77 +96,49 @@
                         <div class="col-md-6">
                             <div class="card">
                                 <div class="card-header">
-                                    <h4>Extracted Data</h4>
+                                    <h4>Extracted Results</h4>
                                 </div>
                                 <div class="card-body">
                                     <!-- Primary Votes Section -->
                                     <h5>Primary Votes</h5>
-                                    {% set primary_votes = result.get_primary_votes() %}
-                                    {% if primary_votes %}
-                                        <div class="table-responsive mb-4">
-                                            <table class="table table-bordered">
-                                                <thead class="table-light">
-                                                    <tr>
-                                                        <th>Candidate</th>
-                                                        <th>Primary Votes</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {% for candidate, votes in primary_votes.items() %}
-                                                    <tr>
-                                                        <td>{{ candidate }}</td>
-                                                        <td>{{ votes }}</td>
-                                                    </tr>
-                                                    {% endfor %}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    {% else %}
-                                        <div class="alert alert-info mb-4">No primary vote data available.</div>
-                                    {% endif %}
+                                    <div class="table-responsive">
+                                        <table class="table table-bordered" id="primary-votes-table">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th>Candidate</th>
+                                                    <th>Votes</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <!-- Primary votes will be loaded here -->
+                                            </tbody>
+                                        </table>
+                                    </div>
                                     
                                     <!-- TCP Votes Section -->
-                                    <h5>Two-Candidate Preferred</h5>
-                                    {% set tcp_votes = result.get_tcp_votes() %}
-                                    {% if tcp_votes %}
-                                        <div class="table-responsive mb-4">
-                                            <table class="table table-bordered">
+                                    <h5 class="mt-4">Two-Candidate Preferred</h5>
+                                    <div id="tcp-votes-container">
+                                        <div class="table-responsive">
+                                            <table class="table table-bordered" id="tcp-votes-table">
                                                 <thead class="table-light">
                                                     <tr>
                                                         <th>Candidate</th>
-                                                        {% for tcp_candidate in tcp_votes.keys() %}
-                                                            <th>{{ tcp_candidate }}</th>
-                                                        {% endfor %}
+                                                        <th>STEGGALL</th>
+                                                        <th>ROGERS</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    {% set all_candidates = [] %}
-                                                    {% for tcp_candidate, votes in tcp_votes.items() %}
-                                                        {% for candidate in votes.keys() %}
-                                                            {% if candidate not in all_candidates %}
-                                                                {% set _ = all_candidates.append(candidate) %}
-                                                            {% endif %}
-                                                        {% endfor %}
-                                                    {% endfor %}
-                                                    
-                                                    {% for candidate in all_candidates %}
-                                                    <tr>
-                                                        <td>{{ candidate }}</td>
-                                                        {% for tcp_candidate in tcp_votes.keys() %}
-                                                            <td>{{ tcp_votes[tcp_candidate].get(candidate, '-') }}</td>
-                                                        {% endfor %}
-                                                    </tr>
-                                                    {% endfor %}
+                                                    <!-- TCP votes will be loaded here -->
                                                 </tbody>
                                             </table>
                                         </div>
-                                    {% else %}
-                                        <div class="alert alert-info mb-4">No two-candidate preferred data available.</div>
-                                    {% endif %}
+                                    </div>
+                                    <div id="no-tcp-votes" class="alert alert-info d-none">
+                                        No two-candidate preferred data available.
+                                    </div>
                                     
                                     <!-- Vote Totals Section -->
-                                    <h5>Vote Totals</h5>
-                                    {% set totals = result.get_totals() %}
+                                    <h5 class="mt-4">Vote Totals</h5>
                                     <div class="table-responsive">
                                         <table class="table table-bordered">
                                             <thead class="table-light">
@@ -178,15 +150,15 @@
                                             <tbody>
                                                 <tr>
                                                     <td>Formal Votes</td>
-                                                    <td>{{ totals.formal or 'Unknown' }}</td>
+                                                    <td id="formal-votes">Unknown</td>
                                                 </tr>
                                                 <tr>
                                                     <td>Informal Votes</td>
-                                                    <td>{{ totals.informal or 'Unknown' }}</td>
+                                                    <td id="informal-votes">Unknown</td>
                                                 </tr>
                                                 <tr>
                                                     <td>Total Votes</td>
-                                                    <td>{{ totals.total or 'Unknown' }}</td>
+                                                    <td id="total-votes">Unknown</td>
                                                 </tr>
                                             </tbody>
                                         </table>
@@ -211,6 +183,10 @@
     // Function to load result data from FastAPI
     function loadResultData() {
         const resultId = document.getElementById('resultId').value;
+        if (!resultId) {
+            console.error('No result ID found');
+            return;
+        }
         
         fetch(`/api/admin/result/${resultId}`, {
             method: 'GET',
@@ -227,6 +203,7 @@
         .then(data => {
             if (data.status === 'success') {
                 updateResultDisplay(data.result);
+                loadPollingPlaces(data.result.electorate);
             }
         })
         .catch(error => {
@@ -237,88 +214,107 @@
     // Function to update the result display with data from FastAPI
     function updateResultDisplay(result) {
         // Update metadata
-        document.querySelector('td:nth-child(2)').textContent = result.id;
-        document.querySelector('tr:nth-child(2) td').textContent = result.timestamp;
-        document.querySelector('tr:nth-child(3) td').textContent = result.electorate || 'Unknown';
-        document.querySelector('tr:nth-child(4) td').textContent = result.booth_name || 'Unknown';
+        document.getElementById('result-id').textContent = result.id;
+        document.getElementById('result-timestamp').textContent = new Date(result.timestamp).toLocaleString();
+        document.getElementById('result-electorate').textContent = result.electorate || 'Unknown';
+        document.getElementById('result-booth-name').textContent = result.booth_name || 'Unknown';
         
         // Update image
         if (result.image_url) {
-            const imgContainer = document.querySelector('.card-body.text-center');
-            imgContainer.innerHTML = `
-                <div class="mb-3">
-                    <a href="http://localhost:8000${result.image_url}" target="_blank" class="btn btn-outline-primary mb-3">
-                        Open Image in New Tab
-                    </a>
-                </div>
-                <img src="http://localhost:8000${result.image_url}" alt="Tally Sheet" class="img-fluid border" style="max-height: 800px;">
-            `;
+            document.getElementById('result-image').src = result.image_url;
+            document.getElementById('image-link').href = result.image_url;
         }
         
-        // Update electorate hidden field
-        document.getElementById('electorate').value = result.electorate;
+        // Update primary votes
+        const primaryVotes = result.data?.primary_votes || {};
+        const primaryVotesTable = document.getElementById('primary-votes-table').getElementsByTagName('tbody')[0];
+        primaryVotesTable.innerHTML = '';
         
-        // Update breadcrumb
-        const breadcrumbItems = document.querySelectorAll('.breadcrumb-item');
-        if (breadcrumbItems.length >= 3) {
-            breadcrumbItems[2].innerHTML = `<a href="/admin/polling-places/${result.electorate}">${result.electorate}</a>`;
+        // The API already sorts by ballot position, so we just need to preserve the order
+        Object.entries(primaryVotes).forEach(([candidate, votes]) => {
+            const row = primaryVotesTable.insertRow();
+            row.insertCell(0).textContent = candidate;
+            row.insertCell(1).textContent = votes;
+        });
+        
+        // Update TCP votes
+        const tcpVotes = result.data?.two_candidate_preferred || {};
+        const tcpVotesTable = document.getElementById('tcp-votes-table').getElementsByTagName('tbody')[0];
+        tcpVotesTable.innerHTML = '';
+        
+        if (Object.keys(tcpVotes).length > 0) {
+            document.getElementById('tcp-votes-container').classList.remove('d-none');
+            document.getElementById('no-tcp-votes').classList.add('d-none');
+            
+            // Get all unique candidates in the order they appear in the first TCP candidate's votes
+            const firstTcpCandidate = Object.keys(tcpVotes)[0];
+            const orderedCandidates = Object.keys(tcpVotes[firstTcpCandidate] || {});
+            
+            // Add rows for each candidate in order
+            orderedCandidates.forEach(candidate => {
+                const row = tcpVotesTable.insertRow();
+                row.insertCell(0).textContent = candidate;
+                row.insertCell(1).textContent = tcpVotes['STEGGALL']?.[candidate] || '-';
+                row.insertCell(2).textContent = tcpVotes['ROGERS']?.[candidate] || '-';
+            });
+        } else {
+            document.getElementById('tcp-votes-container').classList.add('d-none');
+            document.getElementById('no-tcp-votes').classList.remove('d-none');
         }
+        
+        // Update vote totals
+        const totals = result.data?.totals || {};
+        document.getElementById('formal-votes').textContent = totals.formal || 'Unknown';
+        document.getElementById('informal-votes').textContent = totals.informal || 'Unknown';
+        document.getElementById('total-votes').textContent = totals.total || 'Unknown';
     }
     
     // Function to load polling places into the dropdown
-    function loadPollingPlaces(pollingPlaces) {
-        const select = document.getElementById('booth_name');
-        select.innerHTML = '<option value="">Select a polling place...</option>';
-        
-        pollingPlaces.forEach(place => {
-            const option = document.createElement('option');
-            option.value = place.name;
-            option.textContent = place.name;
-            if (place.name === currentBoothName) {
-                option.selected = true;
+    function loadPollingPlaces(division) {
+        fetch(`/api/polling-places/division/${division}`, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
             }
-            select.appendChild(option);
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.status === 'success') {
+                const select = document.getElementById('booth_name');
+                select.innerHTML = '<option value="">Select a polling place...</option>';
+                
+                data.polling_places.forEach(place => {
+                    const option = document.createElement('option');
+                    option.value = place.polling_place_name;
+                    option.textContent = place.polling_place_name;
+                    select.appendChild(option);
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error loading polling places:', error);
         });
     }
-
-    // Function to get result details
-    async function getResultDetails() {
-        try {
-            const response = await fetch(`/api/admin/result/${resultId}`);
-            const data = await response.json();
-            
-            if (data.status === 'success') {
-                const result = data.result;
-                currentBoothName = result.booth_name;
-                
-                // Load polling places into dropdown
-                loadPollingPlaces(result.polling_places);
-                
-                // Update other fields...
-                // ... existing code ...
-            }
-        } catch (error) {
-            console.error('Error fetching result details:', error);
-        }
-    }
-
-    // Function to review result
+    
+    // Function to review a result
     async function reviewResult(action) {
-        if (!confirm(`Are you sure you want to ${action} this result?`)) {
-            return;
-        }
-
+        const resultId = document.getElementById('resultId').value;
         const boothName = document.getElementById('booth_name').value;
+        
         if (!boothName) {
             alert('Please select a polling place');
             return;
         }
-
-        const button = document.getElementById(`${action}-button`);
-        const originalText = button.textContent;
-        button.disabled = true;
-        button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
-
+        
+        if (!confirm(`Are you sure you want to ${action} this result?`)) {
+            return;
+        }
+        
         try {
             const response = await fetch(`/api/admin/review-result/${resultId}`, {
                 method: 'POST',
@@ -327,30 +323,21 @@
                 },
                 body: JSON.stringify({
                     action: action,
-                    booth_name: boothName,
-                    // ... other existing data ...
+                    booth_name: boothName
                 }),
             });
-
+            
             const data = await response.json();
             
             if (data.status === 'success') {
-                alert(`Result ${action}ed successfully!`);
-                window.location.href = '/admin/review';
+                window.location.href = '/dashboard';
             } else {
                 alert(`Error: ${data.message}`);
-                button.disabled = false;
-                button.textContent = originalText;
             }
         } catch (error) {
             console.error('Error:', error);
             alert('An error occurred while processing your request');
-            button.disabled = false;
-            button.textContent = originalText;
         }
     }
-
-    // Load result details when page loads
-    document.addEventListener('DOMContentLoaded', getResultDetails);
 </script>
 {% endblock %}

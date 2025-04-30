@@ -184,63 +184,28 @@ function updatePrimaryVotes(votes) {
     `).join('');
 }
 
-// Function to update TCP votes display
-function updateTCPVotes(votes) {
-    // Update chart
-    if (tcpVotesChart) {
-        tcpVotesChart.destroy();
-    }
-    
-    const ctx = document.getElementById('tcp-votes-chart').getContext('2d');
-    tcpVotesChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: votes.map(v => v.candidate),
-            datasets: [{
-                label: 'TCP Votes',
-                data: votes.map(v => v.votes),
-                backgroundColor: 'rgba(255, 99, 132, 0.5)',
-                borderColor: 'rgba(255, 99, 132, 1)',
-                borderWidth: 1
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
-                    beginAtZero: true
-                }
-            }
-        }
-    });
-    
-    // Update table
-    const tableBody = document.getElementById('tcp-votes-table');
-    tableBody.innerHTML = votes.map(v => `
-        <tr>
-            <td>${v.candidate}</td>
-            <td>${v.votes.toLocaleString()}</td>
-            <td>${v.percentage.toFixed(2)}%</td>
-        </tr>
-    `).join('');
-}
-
 // Function to update booth results table
 function updateBoothResults(booths) {
     const tableBody = document.getElementById('booth-results-table');
     tableBody.innerHTML = booths.map(booth => {
         // Calculate total primary votes
         const totalPrimaryVotes = Object.values(booth.primary_votes || {}).reduce((sum, votes) => sum + votes, 0);
-        // Calculate total TCP votes
-        const totalTCPVotes = Object.values(booth.tcp_votes || {}).reduce((sum, votes) => sum + votes, 0);
+        
+        // Calculate total TCP votes for each candidate
+        const tcpTotals = {};
+        if (booth.tcp_votes) {
+            Object.entries(booth.tcp_votes).forEach(([tcpCandidate, distributions]) => {
+                tcpTotals[tcpCandidate] = Object.values(distributions).reduce((sum, votes) => sum + votes, 0);
+            });
+        }
         
         return `
             <tr>
                 <td>${booth.booth_name}</td>
                 <td>${new Date(booth.timestamp).toLocaleString()}</td>
                 <td>${totalPrimaryVotes.toLocaleString()}</td>
-                <td>${totalTCPVotes.toLocaleString()}</td>
+                <td>${Object.entries(tcpTotals).map(([candidate, votes]) => 
+                    `${candidate}: ${votes.toLocaleString()}`).join(', ')}</td>
                 <td>
                     <a href="/results/${booth.id}" class="btn btn-sm btn-primary">View Details</a>
                 </td>
@@ -325,3 +290,184 @@ setInterval(() => {
         loadResults(currentElectorate);
     }
 }, 30000); // Refresh every 30 seconds 
+
+// Function to update TCP votes display
+function updateTCPVotes(votes) {
+    // Update chart
+    if (tcpVotesChart) {
+        tcpVotesChart.destroy();
+    }
+    
+    // Get TCP candidates from the first vote entry
+    const tcpCandidates = votes.length > 0 ? Object.keys(votes[0].distributions) : [];
+    
+    // Create datasets for each TCP candidate
+    // Sort TCP candidates to ensure Steggall appears first
+    const sortedTcpCandidates = [...tcpCandidates].sort((a, b) => a === 'STEGGALL' ? -1 : 1);
+    
+    const datasets = sortedTcpCandidates.map((tcpCandidate) => ({
+        label: tcpCandidate,
+        data: votes.map(v => v.distributions[tcpCandidate].votes),
+        backgroundColor: tcpCandidate === 'STEGGALL' ? 'rgba(92, 205, 201, 0.9)' : 'rgba(0, 0, 80, 0.9)',
+        borderColor: tcpCandidate === 'ROGERS' ? 'rgb(30, 67, 215)' : 'rgb(59, 59, 246)',
+        borderWidth: 1
+    }));
+    
+    const ctx = document.getElementById('tcp-votes-chart').getContext('2d');
+    tcpVotesChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: votes.map(v => v.candidate),
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    stacked: true
+                },
+                x: {
+                    stacked: true
+                }
+            }
+        }
+    });
+    
+    // Update table
+    const tableBody = document.getElementById('tcp-votes-table');
+    tableBody.innerHTML = votes.map(v => {
+        const distributions = sortedTcpCandidates.map(tcpCandidate => {
+            const data = v.distributions[tcpCandidate];
+            return `
+                <td>${data.votes.toLocaleString()}</td>
+                <td>${data.percentage.toFixed(2)}%</td>
+            `;
+        }).join('');
+            
+        return `
+            <tr>
+                <td>${v.candidate}</td>
+                <td>${v.primary_votes.toLocaleString()}</td>
+                ${distributions}
+            </tr>
+        `;
+    }).join('');
+    
+    // Update table header
+    const tableHeader = document.querySelector('#tcp-votes-table').previousElementSibling;
+    tableHeader.innerHTML = `
+        <tr>
+            <th>Candidate</th>
+            <th>Primary Votes</th>
+            ${sortedTcpCandidates.map(candidate => `
+                <th colspan="2">${candidate}</th>
+            `).join('')}
+        </tr>
+        <tr>
+            <th></th>
+            <th></th>
+            ${sortedTcpCandidates.map(() => `
+                <th>Votes</th>
+                <th>%</th>
+            `).join('')}
+        </tr>
+    `;
+
+    // Calculate and display net TCP position
+    updateNetTCPPosition(votes, tcpCandidates);
+}
+
+// Function to update net TCP position
+function updateNetTCPPosition(votes, tcpCandidates) {
+    // Sort TCP candidates to ensure Steggall appears first
+    const sortedTcpCandidates = [...tcpCandidates].sort((a, b) => a === 'STEGGALL' ? -1 : 1);
+    
+    // Calculate total votes for each TCP candidate
+    const tcpTotals = {};
+    sortedTcpCandidates.forEach(candidate => {
+        // Start with their primary votes (if they are in the votes array)
+        const candidateData = votes.find(v => v.candidate === candidate);
+        tcpTotals[candidate] = candidateData ? candidateData.primary_votes : 0;
+        
+        // Add distributed votes to them
+        votes.forEach(v => {
+            if (v.candidate !== candidate) { // Don't count their own votes twice
+                tcpTotals[candidate] += v.distributions[candidate].votes;
+            }
+        });
+    });
+
+    // Create horizontal bar chart for net position
+    const netCtx = document.getElementById('net-tcp-position-chart').getContext('2d');
+    if (window.netTCPChart) {
+        window.netTCPChart.destroy();
+    }
+
+    const totalVotes = Object.values(tcpTotals).reduce((sum, votes) => sum + votes, 0);
+    
+    window.netTCPChart = new Chart(netCtx, {
+        type: 'bar',
+        data: {
+            labels: sortedTcpCandidates,
+            datasets: [{
+                label: 'Total TCP Votes',
+                data: sortedTcpCandidates.map(candidate => tcpTotals[candidate]),
+                backgroundColor: sortedTcpCandidates.map(candidate => 
+                    candidate === 'STEGGALL' ? 'rgba(92, 205, 201, 0.9)' : 'rgba(0, 0, 80, 0.9)'),
+                borderColor: sortedTcpCandidates.map(candidate => 
+                    candidate === 'ROGERS' ? 'rgb(30, 67, 215)' : 'rgb(59, 59, 246)'),
+                borderWidth: 1
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const votes = context.raw;
+                            const percentage = ((votes / totalVotes) * 100).toFixed(2);
+                            return `${votes.toLocaleString()} votes (${percentage}%)`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Total TCP Votes'
+                    }
+                }
+            }
+        }
+    });
+
+    // Add a summary table below the chart
+    const summaryDiv = document.getElementById('tcp-summary');
+    summaryDiv.innerHTML = `
+        <table class="table table-sm">
+            <thead>
+                <tr>
+                    <th>Candidate</th>
+                    <th>Total TCP Votes</th>
+                    <th>Percentage</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${sortedTcpCandidates.map(candidate => `
+                    <tr>
+                        <td>${candidate}</td>
+                        <td>${tcpTotals[candidate].toLocaleString()}</td>
+                        <td>${((tcpTotals[candidate] / totalVotes) * 100).toFixed(2)}%</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+} 

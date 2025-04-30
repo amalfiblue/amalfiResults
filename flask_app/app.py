@@ -1,10 +1,18 @@
 import os
 import sys
+from pathlib import Path
+
+# Add the utils directory to Python path
+utils_dir = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "utils"
+)
+if utils_dir not in sys.path:
+    sys.path.append(utils_dir)
+
 import json
 import sqlite3
 import datetime
 import base64
-from pathlib import Path
 from flask import (
     Flask,
     render_template,
@@ -33,18 +41,15 @@ import requests
 import threading
 import time
 
-import sys
-import os
-
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from utils.aec_data_downloader import (
+from flask_app.utils.aec_data_downloader import (
     download_and_process_aec_data,
     get_candidates_for_electorate,
 )
-from utils.booth_results_processor import (
+from booth_results_processor import (
     process_and_load_polling_places,
     get_polling_places_for_division,
 )
+from flask_app.utils.db_utils import ensure_database_exists, get_sqlalchemy_url
 
 load_dotenv()
 
@@ -126,14 +131,23 @@ def api_call(endpoint, method="get", data=None, params=None):
     return {"status": "error", "message": str(last_error)}
 
 
-app = Flask(__name__)
+# Determine if running in Docker
+is_docker = os.path.exists("/.dockerenv") or os.path.isdir("/app/data")
+data_dir_path = "/app/data" if is_docker else str(Path(__file__).parent.parent / "data")
 
+# Create data directory if it doesn't exist
+data_dir = Path(data_dir_path)
+data_dir.mkdir(parents=True, exist_ok=True)
+os.chmod(data_dir, 0o777)  # Full permissions for the data directory
+
+app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev_key_for_amalfi_results")
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
-    "DATABASE_URL", "sqlite:///results.db"
-)
+app.config["SQLALCHEMY_DATABASE_URI"] = get_sqlalchemy_url()
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["TEMPLATES_AUTO_RELOAD"] = True
+app.config["INSTANCE_PATH"] = (
+    data_dir_path  # Force Flask to use our data directory for instance files
+)
 
 db = SQLAlchemy(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -186,23 +200,40 @@ class Result:
 
     def get_primary_votes(self):
         """Get primary votes from data JSON"""
-        if self.data and "primary_votes" in self.data:
-            return self.data["primary_votes"]
+        if self.data:
+            try:
+                data = (
+                    json.loads(self.data) if isinstance(self.data, str) else self.data
+                )
+                return data.get("primary_votes", {})
+            except (json.JSONDecodeError, AttributeError):
+                return {}
         return {}
 
     def get_tcp_votes(self):
         """Get two-candidate preferred votes from data JSON"""
         if self.data:
-            if "tcp_votes" in self.data:
-                return self.data["tcp_votes"]
-            elif "two_candidate_preferred" in self.data:
-                return self.data["two_candidate_preferred"]
+            try:
+                data = (
+                    json.loads(self.data) if isinstance(self.data, str) else self.data
+                )
+                return data.get("two_candidate_preferred", {}) or data.get(
+                    "tcp_votes", {}
+                )
+            except (json.JSONDecodeError, AttributeError):
+                return {}
         return {}
 
     def get_totals(self):
         """Get vote totals from data JSON"""
-        if self.data and "totals" in self.data:
-            return self.data["totals"]
+        if self.data:
+            try:
+                data = (
+                    json.loads(self.data) if isinstance(self.data, str) else self.data
+                )
+                return data.get("totals", {})
+            except (json.JSONDecodeError, AttributeError):
+                return {"formal": None, "informal": None, "total": None}
         return {"formal": None, "informal": None, "total": None}
 
 
@@ -649,7 +680,7 @@ def admin_polling_places(division=None):
 
     polling_places = []
     if division:
-        from utils.booth_results_processor import get_polling_places_for_division
+        from booth_results_processor import get_polling_places_for_division
 
         polling_places = get_polling_places_for_division(division)
         app.logger.info(
@@ -809,7 +840,11 @@ def set_default_division():
     division = request.args.get("division")
     next_url = request.args.get("next", url_for("get_dashboard"))
 
-    if division:
+    # Handle empty division (All Divisions)
+    if division == "":
+        session.pop("default_division", None)
+        flash("Default division cleared", "success")
+    else:
         session["default_division"] = division
         flash(f"Default division set to {division}", "success")
 
