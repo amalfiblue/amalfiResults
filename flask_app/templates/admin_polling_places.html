@@ -82,25 +82,25 @@
                                         <td>{{ place.polling_place_name }}</td>
                                         <td>{{ place.state }}</td>
                                         <td>
-                                            {% if place.tcp_candidate_1_percentage is defined %}
+                                            {% if place.tcp_candidate_1_percentage is defined and place.tcp_candidate_1_percentage is not none %}
                                                 {{ place.tcp_candidate_1_percentage|round(2) }}%
-                                            {% elif place.liberal_national_percentage is defined %}
+                                            {% elif place.liberal_national_percentage is defined and place.liberal_national_percentage is not none %}
                                                 {{ place.liberal_national_percentage|round(2) }}%
                                             {% else %}
                                                 N/A
                                             {% endif %}
                                         </td>
                                         <td>
-                                            {% if place.tcp_candidate_2_percentage is defined %}
+                                            {% if place.tcp_candidate_2_percentage is defined and place.tcp_candidate_2_percentage is not none %}
                                                 {{ place.tcp_candidate_2_percentage|round(2) }}%
-                                            {% elif place.labor_percentage is defined %}
+                                            {% elif place.labor_percentage is defined and place.labor_percentage is not none %}
                                                 {{ place.labor_percentage|round(2) }}%
                                             {% else %}
                                                 N/A
                                             {% endif %}
                                         </td>
                                         <td>
-                                            {% if place.tcp_swing is defined %}
+                                            {% if place.tcp_swing is defined and place.tcp_swing is not none %}
                                                 {% if place.tcp_swing > 0 %}
                                                 <span class="text-danger">+{{ place.tcp_swing|round(2) }}% to {{ place.tcp_candidate_1_name or 'Candidate 1' }}</span>
                                                 {% elif place.tcp_swing < 0 %}
@@ -108,7 +108,7 @@
                                                 {% else %}
                                                 <span class="text-secondary">No swing</span>
                                                 {% endif %}
-                                            {% elif place.swing is defined %}
+                                            {% elif place.swing is defined and place.swing is not none %}
                                                 {% if place.swing > 0 %}
                                                 <span class="text-danger">+{{ place.swing|round(2) }}% to ALP</span>
                                                 {% elif place.swing < 0 %}

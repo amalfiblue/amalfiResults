@@ -60,22 +60,47 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/main.js') }}"></script>
 <script>
-    // Load electorates and candidates directly from FastAPI when the page loads
     document.addEventListener('DOMContentLoaded', function() {
+        // Get the currently selected division from the navbar
+        const selectedDivision = document.querySelector('#divisionDropdown')?.textContent.trim();
+        
+        // Load electorates and set up the form
         loadElectorates();
-        loadCandidates();
+        
+        // If there's a selected division, set it in the dropdown and load candidates
+        if (selectedDivision) {
+            const electorateSelect = document.getElementById('electorate');
+            const candidateTypeSelect = document.getElementById('candidate_type');
+            
+            // Set the electorate
+            for (let option of electorateSelect.options) {
+                if (option.text === selectedDivision) {
+                    option.selected = true;
+                    break;
+                }
+            }
+            
+            // Determine if it's a house or senate division based on the state
+            // This is a simplified check - you might want to make this more robust
+            const isSenateDivision = selectedDivision.includes('Senate');
+            candidateTypeSelect.value = isSenateDivision ? 'senate' : 'house';
+            
+            // Load candidates for the selected division
+            loadCandidates(selectedDivision, candidateTypeSelect.value);
+        }
         
         // Set up form submission handler
         const form = document.getElementById('candidates-filter-form');
-        form.addEventListener('submit', function(event) {
-            event.preventDefault();
-            loadCandidates();
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const electorate = document.getElementById('electorate').value;
+            const candidateType = document.getElementById('candidate_type').value;
+            loadCandidates(electorate, candidateType);
         });
     });
     
-    // Function to load electorates from FastAPI
+    // Function to load electorates
     function loadElectorates() {
         fetch('/api/electorates', {
             method: 'GET',
@@ -106,7 +131,7 @@
         const dropdown = document.getElementById('electorate');
         const currentValue = dropdown.value;
         
-        // Keep the first option (All Electorates)
+        // Keep the first option
         const firstOption = dropdown.options[0];
         dropdown.innerHTML = '';
         dropdown.appendChild(firstOption);
@@ -123,33 +148,28 @@
         });
     }
     
-    // Function to load candidates from FastAPI
-    function loadCandidates() {
-        const electorate = document.getElementById('electorate').value;
-        const candidateType = document.getElementById('candidate_type').value;
+    // Function to load candidates
+    function loadCandidates(electorate, candidateType) {
+        let apiUrl = '/api/candidates';
         
-        // Update card title
-        const cardTitle = document.getElementById('candidates-title');
         if (electorate) {
-            cardTitle.textContent = `Candidates for ${electorate}`;
+            apiUrl = `/api/candidates?electorate=${encodeURIComponent(electorate)}`;
+            if (candidateType) {
+                apiUrl += `&candidate_type=${encodeURIComponent(candidateType)}`;
+            }
+        } else if (candidateType) {
+            apiUrl = `/api/candidates?candidate_type=${encodeURIComponent(candidateType)}`;
+        }
+        
+        // Update the title
+        const title = document.getElementById('candidates-title');
+        if (electorate) {
+            title.textContent = `Candidates for ${electorate}`;
         } else {
-            cardTitle.textContent = 'All Candidates';
+            title.textContent = 'All Candidates';
         }
         
-        // Build query parameters
-        let url = '/api/candidates';
-        const params = new URLSearchParams();
-        if (electorate) {
-            url = `/api/candidates/${electorate}`;
-        }
-        if (candidateType) {
-            params.append('candidate_type', candidateType);
-        }
-        if (params.toString()) {
-            url += `?${params.toString()}`;
-        }
-        
-        fetch(url, {
+        fetch(apiUrl, {
             method: 'GET',
             headers: {
                 'Accept': 'application/json',
