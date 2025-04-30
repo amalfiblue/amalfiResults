@@ -37,14 +37,14 @@ parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
-from utils.image_processor import ImageProcessor
-from utils.db_utils import ensure_database_exists, get_sqlalchemy_url
-from utils.booth_results_processor import (
+from common.image_processor import ImageProcessor
+from flask_app.utils.db_utils import ensure_database_exists, get_sqlalchemy_url
+from common.booth_results_processor import (
     process_and_load_booth_results,
     create_polling_places_table,
     get_polling_places_for_division,
 )
-from utils.candidate_data_loader import process_and_load_candidate_data
+from common.candidate_data_loader import process_and_load_candidate_data
 
 load_dotenv()
 
@@ -643,13 +643,13 @@ async def load_reference_data():
 
         try:
             try:
-                from utils.aec_data_downloader import download_and_process_aec_data
-                from utils.booth_results_processor import (
+                from common.aec_data_downloader import download_and_process_aec_data
+                from common.booth_results_processor import (
                     process_and_load_booth_results,
                     process_and_load_polling_places,
                 )
             except ImportError:
-                sys.path.insert(0, os.path.join(parent_dir, "utils"))
+                sys.path.insert(0, os.path.join(parent_dir, "common"))
                 from aec_data_downloader import download_and_process_aec_data
                 from booth_results_processor import (
                     process_and_load_booth_results,
@@ -712,7 +712,7 @@ async def get_admin_polling_places(division: str):
             logger.info(f"Adding parent directory to Python path: {parent_dir}")
             sys.path.append(parent_dir)
 
-        from utils.booth_results_processor import get_polling_places_for_division
+        from common.booth_results_processor import get_polling_places_for_division
 
         polling_places = get_polling_places_for_division(division)
         logger.info(
@@ -756,7 +756,7 @@ async def get_booth_results(
             logger.info(f"Adding parent directory to Python path: {parent_dir}")
             sys.path.append(parent_dir)
 
-        from utils.booth_results_processor import get_polling_places_for_division
+        from common.booth_results_processor import get_polling_places_for_division
 
         if not division:
             return {"status": "error", "message": "Division parameter is required"}
@@ -1432,7 +1432,7 @@ async def get_polling_places(division: str):
             logger.info(f"Adding parent directory to Python path: {parent_dir}")
             sys.path.append(parent_dir)
 
-        from utils.booth_results_processor import get_polling_places_for_division
+        from common.booth_results_processor import get_polling_places_for_division
 
         polling_places = get_polling_places_for_division(division)
         logger.info(

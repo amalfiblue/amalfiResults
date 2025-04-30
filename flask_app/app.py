@@ -44,7 +44,7 @@ from utils.aec_data_downloader import (
     download_and_process_aec_data,
     get_candidates_for_electorate,
 )
-from utils.booth_results_processor import (
+from common.booth_results_processor import (
     process_and_load_polling_places,
     get_polling_places_for_division,
 )
@@ -679,7 +679,7 @@ def admin_polling_places(division=None):
 
     polling_places = []
     if division:
-        from booth_results_processor import get_polling_places_for_division
+        from common.booth_results_processor import get_polling_places_for_division
 
         polling_places = get_polling_places_for_division(division)
         app.logger.info(
