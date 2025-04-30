@@ -9,7 +9,7 @@ from PIL import Image
 import pytesseract
 import io
 import json
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from sqlalchemy import (
     create_engine,
     Column,
@@ -353,9 +353,7 @@ async def scan_image(file: UploadFile = File(...)):
         db = SessionLocal()
         try:
             # Store the image in a proper location and use a proper URL
-            image_filename = (
-                f"{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}_{file.filename}"
-            )
+            image_filename = f"{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{file.filename}"
             image_path = f"static/uploads/{image_filename}"
             os.makedirs("static/uploads", exist_ok=True)
 
@@ -391,7 +389,7 @@ async def scan_image(file: UploadFile = File(...)):
                 # Update existing result
                 existing_result.image_url = image_url
                 existing_result.data = data_json
-                existing_result.timestamp = datetime.now(UTC)
+                existing_result.timestamp = datetime.now(timezone.utc)
                 existing_result.is_reviewed = 0  # Reset review status
                 existing_result.reviewer = None
                 db_result = existing_result
@@ -500,7 +498,7 @@ async def receive_sms(request: Request):
                 # Update existing result
                 existing_result.image_url = image_url
                 existing_result.data = data_json
-                existing_result.timestamp = datetime.now(UTC)
+                existing_result.timestamp = datetime.now(timezone.utc)
                 existing_result.is_reviewed = 0  # Reset review status
                 existing_result.reviewer = None
                 db_result = existing_result
@@ -836,7 +834,7 @@ async def review_result(result_id: int, request: Request):
             # Update the review status
             result_data["reviewed"] = True
             result_data["approved"] = action == "approve"
-            result_data["reviewed_at"] = datetime.now(UTC).isoformat()
+            result_data["reviewed_at"] = datetime.now(timezone.utc).isoformat()
 
             # Convert back to JSON string
             result.data = json.dumps(result_data)
@@ -1621,7 +1619,7 @@ async def manual_entry(request: Request):
                         FLASK_APP_URL,
                         json={
                             "result_id": result_id,
-                            "timestamp": datetime.now(UTC).isoformat(),
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
                             "electorate": electorate,
                             "booth_name": booth_name,
                             "action": "manual_entry",
