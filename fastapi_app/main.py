@@ -19,6 +19,7 @@ from sqlalchemy import (
     JSON,
     Float,
     Boolean,
+    text,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -513,6 +514,7 @@ async def load_reference_data():
         import sys
         import os
         from pathlib import Path
+        from sqlalchemy import text
 
         # Get the parent directory of the current file's directory
         parent_dir = str(Path(__file__).parent.parent)
@@ -560,8 +562,8 @@ async def load_reference_data():
             logger.info("Getting polling places count...")
             db = SessionLocal()
             try:
-                cursor = db.execute("SELECT COUNT(*) FROM polling_places")
-                polling_places_count = cursor.scalar() or 0
+                result = db.execute(text("SELECT COUNT(*) FROM polling_places"))
+                polling_places_count = result.scalar() or 0
             finally:
                 db.close()
 
@@ -1084,8 +1086,15 @@ async def api_electorates():
     Get all unique electorates from the candidates table
     """
     try:
-        # Return only Warringah electorate
-        return {"status": "success", "electorates": ["Warringah"]}
+        db_path = SQLALCHEMY_DATABASE_URL.replace("sqlite:///", "")
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT DISTINCT electorate FROM candidates ORDER BY electorate")
+        electorates = [row[0] for row in cursor.fetchall()]
+        conn.close()
+
+        return {"status": "success", "electorates": electorates}
     except Exception as e:
         logger.error(f"Error getting electorates: {e}")
         logger.error(f"Error type: {type(e).__name__}")
