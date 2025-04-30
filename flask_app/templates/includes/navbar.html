@@ -34,15 +34,15 @@
             </ul>
             <div class="ms-auto">
                 {% if current_user.is_authenticated %}
-                <div class="dropdown me-3">
-                    <button class="btn btn-outline-light dropdown-toggle" type="button" id="divisionDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                        {{ g.selected_division }}
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="divisionDropdown" id="division-dropdown">
-                        <li><h6 class="dropdown-header">Set Division</h6></li>
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="divisionDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        Select Division
+                    </a>
+                    <ul class="dropdown-menu" aria-labelledby="divisionDropdown">
+                        <li><a class="dropdown-item" href="#" data-division="">All Divisions</a></li>
                         <!-- Divisions will be loaded via JavaScript -->
                     </ul>
-                </div>
+                </li>
                 {% endif %}
             </div>
         </div>
@@ -78,26 +78,43 @@
 
     // Function to update the divisions dropdown
     function updateDivisionsDropdown(divisions) {
-        const dropdown = document.getElementById('division-dropdown');
-        const currentValue = '{{ g.selected_division }}';
+        const dropdown = document.getElementById('divisionDropdown').nextElementSibling;
+        const currentDivision = '{{ division }}';
         
-        // Keep the header
-        const header = dropdown.querySelector('.dropdown-header').parentElement;
-        dropdown.innerHTML = '';
-        dropdown.appendChild(header);
+        // Clear existing options except the first one
+        while (dropdown.children.length > 1) {
+            dropdown.removeChild(dropdown.lastChild);
+        }
         
         // Add divisions from API
         divisions.forEach(division => {
             const li = document.createElement('li');
             const a = document.createElement('a');
-            a.className = `dropdown-item ${division === currentValue ? 'active' : ''}`;
-            a.href = `/set-default-division?division=${encodeURIComponent(division)}&next=${encodeURIComponent(window.location.pathname)}`;
+            a.className = 'dropdown-item';
+            a.href = '#';
             a.textContent = division;
+            a.dataset.division = division;
+            
+            if (division === currentDivision) {
+                a.classList.add('active');
+            }
+            
             li.appendChild(a);
             dropdown.appendChild(li);
+        });
+        
+        // Add click handlers
+        dropdown.querySelectorAll('.dropdown-item').forEach(item => {
+            item.addEventListener('click', function(e) {
+                e.preventDefault();
+                const division = this.dataset.division;
+                window.location.href = `/booth-results?division=${encodeURIComponent(division)}`;
+            });
         });
     }
 
     // Load divisions when the page loads
-    document.addEventListener('DOMContentLoaded', loadDivisions);
+    document.addEventListener('DOMContentLoaded', function() {
+        loadDivisions();
+    });
 </script>

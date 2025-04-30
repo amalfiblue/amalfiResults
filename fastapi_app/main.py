@@ -653,13 +653,10 @@ async def load_reference_data():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/admin/polling-places/{division}")
-async def get_polling_places(division: str):
+@app.get("/admin/polling-places/division/{division}")
+async def get_admin_polling_places(division: str):
     """
-    Get polling places for a specific division
-
-    Args:
-        division: Name of the division/electorate
+    Get polling places for a specific division (admin endpoint)
     """
     try:
         import sys
@@ -674,16 +671,36 @@ async def get_polling_places(division: str):
         from utils.booth_results_processor import get_polling_places_for_division
 
         polling_places = get_polling_places_for_division(division)
-        return {"status": "success", "booth_results": polling_places}
+        logger.info(
+            f"Retrieved {len(polling_places)} polling places for division {division}"
+        )
+
+        return {
+            "status": "success",
+            "polling_places": [
+                {
+                    "id": p["id"],
+                    "polling_place_id": p["polling_place_id"],
+                    "polling_place_name": p["polling_place_name"],
+                    "address": p["address"],
+                    "status": p["status"],
+                    "wheelchair_access": p["wheelchair_access"],
+                    "data": json.loads(p["data"]) if p["data"] else {},
+                }
+                for p in polling_places
+            ],
+        }
     except Exception as e:
         logger.error(f"Error getting polling places for division {division}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/booth-results")
-async def get_booth_results(electorate: Optional[str] = None):
+async def get_booth_results(
+    division: Optional[str] = None, booth: Optional[str] = None
+):
     """
-    Get polling places for a specific electorate/division
+    Get polling places for a specific division/booth
     """
     try:
         import sys
@@ -697,17 +714,37 @@ async def get_booth_results(electorate: Optional[str] = None):
 
         from utils.booth_results_processor import get_polling_places_for_division
 
-        if not electorate:
-            return {"status": "error", "message": "Electorate parameter is required"}
+        if not division:
+            return {"status": "error", "message": "Division parameter is required"}
 
-        polling_places = get_polling_places_for_division(electorate)
+        polling_places = get_polling_places_for_division(division)
         logger.info(
-            f"Retrieved {len(polling_places)} polling places for electorate {electorate}"
+            f"Retrieved {len(polling_places)} polling places for division {division}"
         )
 
-        return {"status": "success", "booth_results": polling_places}
+        # Filter by booth if specified
+        if booth:
+            polling_places = [
+                p for p in polling_places if p["polling_place_name"] == booth
+            ]
+
+        return {
+            "status": "success",
+            "booth_results": [
+                {
+                    "id": p["id"],
+                    "polling_place_id": p["polling_place_id"],
+                    "polling_place_name": p["polling_place_name"],
+                    "address": p["address"],
+                    "status": p["status"],
+                    "wheelchair_access": p["wheelchair_access"],
+                    "data": json.loads(p["data"]) if p["data"] else {},
+                }
+                for p in polling_places
+            ],
+        }
     except Exception as e:
-        logger.error(f"Error getting booth results for electorate {electorate}: {e}")
+        logger.error(f"Error getting booth results for division {division}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -752,7 +789,7 @@ async def reset_results(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/admin/unreviewed-results/{division}")
+@app.get("/admin/unreviewed-results/division/{division}")
 async def get_unreviewed_results(division: str):
     """
     Get unreviewed results for a specific division
@@ -770,7 +807,7 @@ async def get_unreviewed_results(division: str):
                     "image_url": r.image_url,
                 }
                 for r in results
-                if not (r.data and r.data.get("reviewed"))
+                if not (r.data and json.loads(r.data).get("reviewed"))
             ]
             return {"status": "success", "unreviewed_results": unreviewed_results}
         finally:

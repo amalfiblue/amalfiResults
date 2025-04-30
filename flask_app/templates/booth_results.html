@@ -16,10 +16,10 @@
                     <div class="card-body">
                         <form id="booth-filter-form">
                             <div class="mb-3">
-                                <label for="electorate" class="form-label">Electorate</label>
-                                <select class="form-select" id="electorate" name="electorate">
-                                    <option value="">All Electorates</option>
-                                    <!-- Electorates will be loaded via JavaScript -->
+                                <label for="division" class="form-label">Division</label>
+                                <select class="form-select" id="division" name="division">
+                                    <option value="">All Divisions</option>
+                                    <!-- Divisions will be loaded via JavaScript -->
                                 </select>
                             </div>
                             <div class="mb-3">
@@ -152,29 +152,8 @@
 {% block extra_js %}
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script>
-        // Load electorates from FastAPI when the page loads
-        document.addEventListener('DOMContentLoaded', function() {
-            loadElectorates();
-            
-            // Set up form submission handler
-            const form = document.getElementById('booth-filter-form');
-            form.addEventListener('submit', function(event) {
-                event.preventDefault();
-                const electorate = document.getElementById('electorate').value;
-                const booth = document.getElementById('booth').value;
-                
-                // Update URL parameters
-                const params = new URLSearchParams();
-                if (electorate) params.append('electorate', electorate);
-                if (booth) params.append('booth', booth);
-                
-                // Reload page with new parameters
-                window.location.href = `/booth-results?${params.toString()}`;
-            });
-        });
-        
-        // Function to load electorates from FastAPI
-        function loadElectorates() {
+        // Function to load divisions from FastAPI
+        function loadDivisions() {
             fetch('/api/electorates', {
                 method: 'GET',
                 headers: {
@@ -189,36 +168,96 @@
             })
             .then(data => {
                 if (data.status === 'success') {
-                    updateElectoratesDropdown(data.electorates);
+                    updateDivisionsDropdown(data.electorates);
                 } else {
-                    console.error('Error loading electorates:', data.message || 'Unknown error');
+                    console.error('Error loading divisions:', data.message || 'Unknown error');
                 }
             })
             .catch(error => {
-                console.error('Error loading electorates:', error);
+                console.error('Error loading divisions:', error);
             });
         }
-        
-        // Function to update the electorates dropdown
-        function updateElectoratesDropdown(electorates) {
-            const dropdown = document.getElementById('electorate');
-            const currentValue = '{{ electorate }}';
+
+        // Function to update the divisions dropdown
+        function updateDivisionsDropdown(divisions) {
+            const dropdown = document.getElementById('division');
+            const currentValue = '{{ division }}';
             
-            // Keep the first option (All Electorates)
-            const firstOption = dropdown.options[0];
-            dropdown.innerHTML = '';
-            dropdown.appendChild(firstOption);
+            dropdown.innerHTML = '<option value="">All Divisions</option>';
             
-            // Add electorates from API
-            electorates.forEach(electorate => {
+            divisions.forEach(division => {
                 const option = document.createElement('option');
-                option.value = electorate;
-                option.textContent = electorate;
-                if (electorate === currentValue) {
+                option.value = division;
+                option.textContent = division;
+                if (division === currentValue) {
                     option.selected = true;
                 }
                 dropdown.appendChild(option);
             });
         }
+
+        // Function to load current results
+        function loadCurrentResults(division, booth) {
+            // Build query parameters
+            let params = new URLSearchParams();
+            if (division) {
+                params.append('division', division);
+            }
+            if (booth) {
+                params.append('booth', booth);
+            }
+            
+            // Fetch results from FastAPI
+            fetch(`/api/booth-results?${params.toString()}`, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json',
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.status === 'success') {
+                    updateCurrentResultsTable(data.booth_results);
+                } else {
+                    console.error('Error loading results:', data.message || 'Unknown error');
+                }
+            })
+            .catch(error => {
+                console.error('Error loading results:', error);
+            });
+        }
+
+        // Load divisions when the page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            loadDivisions();
+            
+            const division = document.getElementById('division').value;
+            const booth = document.getElementById('booth').value;
+            
+            if (division) {
+                loadCurrentResults(division, booth);
+            }
+            
+            // Set up form submission handler
+            const form = document.getElementById('booth-filter-form');
+            form.addEventListener('submit', function(event) {
+                event.preventDefault();
+                const division = document.getElementById('division').value;
+                const booth = document.getElementById('booth').value;
+                
+                // Update URL parameters
+                const params = new URLSearchParams();
+                if (division) params.append('division', division);
+                if (booth) params.append('booth', booth);
+                
+                // Reload page with new parameters
+                window.location.href = `/booth-results?${params.toString()}`;
+            });
+        });
     </script>
 {% endblock %}
