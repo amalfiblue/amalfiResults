@@ -2,12 +2,10 @@ import os
 import sys
 from pathlib import Path
 
-# Add the utils directory to Python path
-utils_dir = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "utils"
-)
-if utils_dir not in sys.path:
-    sys.path.append(utils_dir)
+# Add the parent directory to Python path to find modules
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
 
 import json
 import sqlite3
@@ -41,15 +39,16 @@ import requests
 import threading
 import time
 
-from flask_app.utils.aec_data_downloader import (
+# Import from utils directory
+from utils.aec_data_downloader import (
     download_and_process_aec_data,
     get_candidates_for_electorate,
 )
-from booth_results_processor import (
+from utils.booth_results_processor import (
     process_and_load_polling_places,
     get_polling_places_for_division,
 )
-from flask_app.utils.db_utils import ensure_database_exists, get_sqlalchemy_url
+from utils.db_utils import ensure_database_exists, get_sqlalchemy_url
 
 load_dotenv()
 

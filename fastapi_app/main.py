@@ -28,9 +28,23 @@ from dotenv import load_dotenv
 import logging
 from typing import Dict, List, Optional, Any, Tuple
 from pydantic import BaseModel
-from utils.image_processor import ImageProcessor
 from collections import defaultdict
-from flask_app.utils.db_utils import ensure_database_exists, get_sqlalchemy_url
+
+# Add the parent directory to Python path to find modules
+import sys
+
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
+
+from utils.image_processor import ImageProcessor
+from utils.db_utils import ensure_database_exists, get_sqlalchemy_url
+from utils.booth_results_processor import (
+    process_and_load_booth_results,
+    create_polling_places_table,
+    get_polling_places_for_division,
+)
+from utils.candidate_data_loader import process_and_load_candidate_data
 
 load_dotenv()
 
@@ -65,15 +79,6 @@ os.chmod(uploads_dir, 0o777)  # Full permissions for the uploads directory
 
 # Mount the uploads directory
 app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
-
-import sys
-
-sys.path.append(str(Path(__file__).parent.parent))
-logger.info(
-    f"Adding parent directory to Python path: {str(Path(__file__).parent.parent)}"
-)
-from utils.booth_results_processor import process_and_load_booth_results
-from utils.candidate_data_loader import process_and_load_candidate_data
 
 # Initialize database
 ensure_database_exists()
@@ -164,8 +169,6 @@ class Candidate(Base):
 Base.metadata.create_all(bind=engine)
 
 # Create polling places table
-from utils.booth_results_processor import create_polling_places_table
-
 create_polling_places_table()
 
 # Initialize image processor

@@ -12,22 +12,23 @@ RUN apt-get update && apt-get install -y \
 # Install Poetry
 RUN pip install poetry==1.5.1
 
-# Copy Poetry configuration
-COPY fastapi_app/pyproject.toml /app/
+# Copy the entire project first
+COPY . /app/
 
 # Configure Poetry to not create a virtual environment
 RUN poetry config virtualenvs.create false
 
-# Generate requirements.txt from Poetry and install dependencies
-RUN poetry export -f requirements.txt -o requirements.txt && \
-    pip install -r requirements.txt
-
-# Copy application code and utils
-COPY fastapi_app/ /app/
-COPY utils/ /app/utils/
+# Install dependencies including local packages
+RUN cd /app/fastapi_app && \
+    poetry export -f requirements.txt -o requirements.txt && \
+    pip install -r requirements.txt && \
+    pip install -e /app
 
 # Create data directory for database
 RUN mkdir -p /app/data && chmod 777 /app/data
+
+# Set working directory to fastapi app
+WORKDIR /app/fastapi_app
 
 # Expose port
 EXPOSE 8000
