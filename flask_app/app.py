@@ -526,6 +526,13 @@ def get_dashboard(electorate=None):
 
     is_admin = current_user.is_admin if hasattr(current_user, "is_admin") else False
 
+    # Calculate total votes for each electorate
+    total_votes = {}
+    for booth_result in booth_results:
+        if booth_result.electorate not in total_votes:
+            total_votes[booth_result.electorate] = 0
+        total_votes[booth_result.electorate] += booth_result.get_totals()["total"]
+
     return render_template(
         "electorate_dashboard.html",
         electorates=electorates,
@@ -537,6 +544,7 @@ def get_dashboard(electorate=None):
         total_booths=total_booths,
         last_updated=last_updated,
         is_admin=is_admin,
+        total_votes=total_votes,
     )
 
 
