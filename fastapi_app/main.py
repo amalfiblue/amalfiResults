@@ -9,7 +9,7 @@ from PIL import Image
 import pytesseract
 import io
 import json
-from datetime import datetime
+from datetime import datetime, UTC
 from sqlalchemy import (
     create_engine,
     Column,
@@ -354,7 +354,7 @@ async def scan_image(file: UploadFile = File(...)):
         try:
             # Store the image in a proper location and use a proper URL
             image_filename = (
-                f"{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
+                f"{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}_{file.filename}"
             )
             image_path = f"static/uploads/{image_filename}"
             os.makedirs("static/uploads", exist_ok=True)
@@ -377,17 +377,38 @@ async def scan_image(file: UploadFile = File(...)):
                 }
             )
 
-            db_result = Result(
-                image_url=image_url,
-                electorate=tally_data.get("electorate"),
-                booth_name=result["booth_name"]
-                or tally_data.get("booth_name"),  # prefer booth name from query
-                data=data_json,
+            # Check for existing result for this booth
+            existing_result = (
+                db.query(Result)
+                .filter_by(
+                    electorate=tally_data.get("electorate"),
+                    booth_name=result["booth_name"] or tally_data.get("booth_name"),
+                )
+                .first()
             )
-            db.add(db_result)
+
+            if existing_result:
+                # Update existing result
+                existing_result.image_url = image_url
+                existing_result.data = data_json
+                existing_result.timestamp = datetime.now(UTC)
+                existing_result.is_reviewed = 0  # Reset review status
+                existing_result.reviewer = None
+                db_result = existing_result
+                logger.info(f"Updated existing result with ID: {db_result.id}")
+            else:
+                # Create new result
+                db_result = Result(
+                    image_url=image_url,
+                    electorate=tally_data.get("electorate"),
+                    booth_name=result["booth_name"] or tally_data.get("booth_name"),
+                    data=data_json,
+                )
+                db.add(db_result)
+                logger.info(f"Created new result with ID: {db_result.id}")
+
             db.commit()
             db.refresh(db_result)
-            logger.info(f"Saved result to database with ID: {db_result.id}")
 
             # Notify Flask app if needed
             try:
@@ -465,13 +486,36 @@ async def receive_sms(request: Request):
                 }
             )
 
-            db_result = Result(
-                image_url=image_url,
-                electorate=tally_data.get("electorate"),
-                booth_name=result["booth_name"] or tally_data.get("booth_name"),
-                data=data_json,
+            # Check for existing result for this booth
+            existing_result = (
+                db.query(Result)
+                .filter_by(
+                    electorate=tally_data.get("electorate"),
+                    booth_name=result["booth_name"] or tally_data.get("booth_name"),
+                )
+                .first()
             )
-            db.add(db_result)
+
+            if existing_result:
+                # Update existing result
+                existing_result.image_url = image_url
+                existing_result.data = data_json
+                existing_result.timestamp = datetime.now(UTC)
+                existing_result.is_reviewed = 0  # Reset review status
+                existing_result.reviewer = None
+                db_result = existing_result
+                logger.info(f"Updated existing result with ID: {db_result.id}")
+            else:
+                # Create new result
+                db_result = Result(
+                    image_url=image_url,
+                    electorate=tally_data.get("electorate"),
+                    booth_name=result["booth_name"] or tally_data.get("booth_name"),
+                    data=data_json,
+                )
+                db.add(db_result)
+                logger.info(f"Created new result with ID: {db_result.id}")
+
             db.commit()
             db.refresh(db_result)
             logger.info(f"Saved SMS result to database with ID: {db_result.id}")
@@ -786,12 +830,20 @@ async def review_result(result_id: int, request: Request):
                     status_code=404, detail=f"Result with ID {result_id} not found"
                 )
 
-            if not result.data:
-                result.data = {}
+            # Parse the existing data JSON string
+            result_data = json.loads(result.data) if result.data else {}
 
-            result.data["reviewed"] = True
-            result.data["approved"] = action == "approve"
-            result.data["reviewed_at"] = datetime.utcnow().isoformat()
+            # Update the review status
+            result_data["reviewed"] = True
+            result_data["approved"] = action == "approve"
+            result_data["reviewed_at"] = datetime.now(UTC).isoformat()
+
+            # Convert back to JSON string
+            result.data = json.dumps(result_data)
+            result.is_reviewed = 1
+            result.reviewer = (
+                "Admin"  # You might want to get this from the request or session
+            )
 
             db.commit()
 
@@ -1569,7 +1621,7 @@ async def manual_entry(request: Request):
                         FLASK_APP_URL,
                         json={
                             "result_id": result_id,
-                            "timestamp": datetime.utcnow().isoformat(),
+                            "timestamp": datetime.now(UTC).isoformat(),
                             "electorate": electorate,
                             "booth_name": booth_name,
                             "action": "manual_entry",
