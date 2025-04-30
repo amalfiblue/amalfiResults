@@ -52,6 +52,12 @@
                             <div id="reviewActions">
                                 <input type="hidden" id="resultId" value="{{ result.id }}">
                                 <input type="hidden" id="electorate" value="{{ result.electorate }}">
+                                <div class="mb-4">
+                                    <label for="booth_name" class="block text-sm font-medium text-gray-700">Booth Name</label>
+                                    <select id="booth_name" name="booth_name" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                                        <option value="">Select a polling place...</option>
+                                    </select>
+                                </div>
                                 <button type="button" class="btn btn-success me-2" onclick="reviewResult('approve')">
                                     Approve Result
                                 </button>
@@ -259,62 +265,92 @@
         }
     }
     
-    // Function to review a result (approve or reject)
-    function reviewResult(action) {
-        const resultId = document.getElementById('resultId').value;
-        const electorate = document.getElementById('electorate').value;
-        const confirmMessage = action === 'approve' 
-            ? 'Are you sure you want to approve this result?' 
-            : 'Are you sure you want to reject this result?';
+    // Function to load polling places into the dropdown
+    function loadPollingPlaces(pollingPlaces) {
+        const select = document.getElementById('booth_name');
+        select.innerHTML = '<option value="">Select a polling place...</option>';
+        
+        pollingPlaces.forEach(place => {
+            const option = document.createElement('option');
+            option.value = place.name;
+            option.textContent = place.name;
+            if (place.name === currentBoothName) {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+    }
+
+    // Function to get result details
+    async function getResultDetails() {
+        try {
+            const response = await fetch(`/api/admin/result/${resultId}`);
+            const data = await response.json();
             
-        if (confirm(confirmMessage)) {
-            // Disable buttons and show loading state
-            const buttons = document.querySelectorAll('#reviewActions button');
-            buttons.forEach(button => {
-                button.disabled = true;
-                const originalText = button.textContent;
-                button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
-            });
-            
-            // Direct API call to FastAPI
-            fetch(`/api/admin/review-result/${resultId}`, {
+            if (data.status === 'success') {
+                const result = data.result;
+                currentBoothName = result.booth_name;
+                
+                // Load polling places into dropdown
+                loadPollingPlaces(result.polling_places);
+                
+                // Update other fields...
+                // ... existing code ...
+            }
+        } catch (error) {
+            console.error('Error fetching result details:', error);
+        }
+    }
+
+    // Function to review result
+    async function reviewResult(action) {
+        if (!confirm(`Are you sure you want to ${action} this result?`)) {
+            return;
+        }
+
+        const boothName = document.getElementById('booth_name').value;
+        if (!boothName) {
+            alert('Please select a polling place');
+            return;
+        }
+
+        const button = document.getElementById(`${action}-button`);
+        const originalText = button.textContent;
+        button.disabled = true;
+        button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
+
+        try {
+            const response = await fetch(`/api/admin/review-result/${resultId}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
                     action: action,
-                    electorate: electorate,
-                    reviewed: true,
-                    approved: action === 'approve'
-                })
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
-                }
-                return response.json();
-            })
-            .then(data => {
-                if (data.status === 'success') {
-                    alert(`Result ${action === 'approve' ? 'approved' : 'rejected'} successfully`);
-                    // Redirect to polling places page
-                    window.location.href = `/admin/polling-places/${electorate}`;
-                } else {
-                    throw new Error(data.message || 'Unknown error');
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                alert(`Error reviewing result: ${error.message}`);
-                // Re-enable buttons
-                buttons.forEach(button => {
-                    button.disabled = false;
-                    button.innerHTML = button.getAttribute('data-original-text') || 
-                        (action === 'approve' ? 'Approve Result' : 'Reject Result');
-                });
+                    booth_name: boothName,
+                    // ... other existing data ...
+                }),
             });
+
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                alert(`Result ${action}ed successfully!`);
+                window.location.href = '/admin/review';
+            } else {
+                alert(`Error: ${data.message}`);
+                button.disabled = false;
+                button.textContent = originalText;
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('An error occurred while processing your request');
+            button.disabled = false;
+            button.textContent = originalText;
         }
     }
+
+    // Load result details when page loads
+    document.addEventListener('DOMContentLoaded', getResultDetails);
 </script>
 {% endblock %}

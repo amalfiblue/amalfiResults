@@ -786,6 +786,47 @@ async def get_result(result_id: int):
                     status_code=404, detail=f"Result with ID {result_id} not found"
                 )
 
+            # Parse the JSON data
+            result_data = json.loads(result.data) if result.data else {}
+
+            # Extract primary votes
+            primary_votes = result_data.get("primary_votes", {})
+
+            # Extract TCP votes
+            tcp_votes = result_data.get("two_candidate_preferred", {})
+
+            # Extract totals
+            totals = result_data.get("totals", {})
+
+            # Get polling places for this electorate
+            polling_places = []
+            try:
+                conn = sqlite3.connect(
+                    SQLALCHEMY_DATABASE_URL.replace("sqlite:///", "")
+                )
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT polling_place_id, polling_place_name, address, status, wheelchair_access
+                    FROM polling_places 
+                    WHERE division_name = ? 
+                    ORDER BY polling_place_name
+                """,
+                    (result.electorate,),
+                )
+                polling_places = [
+                    dict(
+                        zip(
+                            ["id", "name", "address", "status", "wheelchair_access"],
+                            row,
+                        )
+                    )
+                    for row in cursor.fetchall()
+                ]
+                conn.close()
+            except Exception as e:
+                logger.error(f"Error getting polling places: {e}")
+
             return {
                 "status": "success",
                 "result": {
@@ -794,7 +835,12 @@ async def get_result(result_id: int):
                     "electorate": result.electorate,
                     "booth_name": result.booth_name,
                     "image_url": result.image_url,
-                    "data": result.data,
+                    "data": {
+                        "primary_votes": primary_votes,
+                        "two_candidate_preferred": tcp_votes,
+                        "totals": totals,
+                    },
+                    "polling_places": polling_places,
                 },
             }
         finally:
@@ -1663,13 +1709,33 @@ async def get_electorate_results(electorate: str):
         )
 
         # Process results
+        primary_votes = {}
+        tcp_votes = {}
         booth_results = []
+
         for result in results:
             try:
                 result_data = json.loads(result.data)
                 logger.info(
                     f"Processing result for booth {result.booth_name}: {result_data}"
                 )
+
+                # Aggregate primary votes
+                if "primary_votes" in result_data:
+                    for candidate, votes in result_data["primary_votes"].items():
+                        if candidate not in primary_votes:
+                            primary_votes[candidate] = 0
+                        primary_votes[candidate] += votes
+
+                # Aggregate TCP votes
+                if "two_candidate_preferred" in result_data:
+                    for candidate, votes in result_data[
+                        "two_candidate_preferred"
+                    ].items():
+                        if candidate not in tcp_votes:
+                            tcp_votes[candidate] = 0
+                        tcp_votes[candidate] += votes
+
                 booth_results.append(
                     {
                         "booth_name": result.booth_name,
@@ -1681,12 +1747,18 @@ async def get_electorate_results(electorate: str):
                 logger.error(f"Error decoding JSON for result {result.id}: {str(e)}")
                 continue
 
+        # Convert aggregated votes to arrays for the frontend
+        primary_votes_array = [
+            {"candidate": k, "votes": v} for k, v in primary_votes.items()
+        ]
+        tcp_votes_array = [{"candidate": k, "votes": v} for k, v in tcp_votes.items()]
+
         logger.info(f"Successfully processed {len(booth_results)} booth results")
 
         return {
             "status": "success",
-            "electorate": electorate,
-            "booth_results": booth_results,
+            "primary_votes": primary_votes_array,
+            "tcp_votes": tcp_votes_array,
             "booth_count": len(booth_results),
             "total_booths": len(
                 booth_results
