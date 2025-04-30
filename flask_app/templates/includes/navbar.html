@@ -79,7 +79,7 @@
     // Function to update the divisions dropdown
     function updateDivisionsDropdown(divisions) {
         const dropdown = document.getElementById('divisionDropdown').nextElementSibling;
-        const currentDivision = '{{ division }}';
+        const currentDivision = '{{ g.selected_division }}';
         
         // Clear existing options except the first one
         while (dropdown.children.length > 1) {
@@ -108,7 +108,7 @@
             item.addEventListener('click', function(e) {
                 e.preventDefault();
                 const division = this.dataset.division;
-                window.location.href = `/booth-results?division=${encodeURIComponent(division)}`;
+                window.location.href = `/set-default-division?division=${encodeURIComponent(division)}&next=${encodeURIComponent(window.location.pathname)}`;
             });
         });
     }
