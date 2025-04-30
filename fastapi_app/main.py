@@ -886,7 +886,12 @@ async def api_results():
     try:
         db = SessionLocal()
         try:
-            results = db.query(Result).order_by(Result.timestamp.desc()).all()
+            results = (
+                db.query(Result)
+                .filter_by(is_reviewed=1)
+                .order_by(Result.timestamp.desc())
+                .all()
+            )
             return {
                 "status": "success",
                 "results": [
@@ -967,7 +972,7 @@ async def api_results_by_electorate(electorate: str):
             """
             SELECT id, timestamp, electorate, booth_name, image_url, data
             FROM results 
-            WHERE electorate = ? 
+            WHERE electorate = ? AND is_reviewed = 1
             ORDER BY timestamp DESC
         """,
             (electorate,),
@@ -1251,70 +1256,50 @@ async def api_dashboard(electorate: str):
     Get all dashboard data for a specific electorate
     """
     try:
+        logger.info(f"=== Starting dashboard request for electorate: {electorate} ===")
         import sys
         import os
         from pathlib import Path
 
         db_path = SQLALCHEMY_DATABASE_URL.replace("sqlite:///", "")
         logger.info(f"Connecting to database at: {db_path}")
-        logger.info(f"Current working directory: {os.getcwd()}")
-
-        if not os.path.exists(db_path):
-            logger.error(f"Database file does not exist: {db_path}")
-            return {"status": "error", "detail": f"Database file not found: {db_path}"}
-
-        logger.info(f"Database file exists: {db_path}")
-        logger.info(f"File permissions: {oct(os.stat(db_path).st_mode)}")
-        logger.info(f"File owner: {os.stat(db_path).st_uid}")
 
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
+        # Log all results for this electorate before filtering
         cursor.execute(
-            "SELECT COUNT(*) FROM results WHERE electorate = ?", (electorate,)
-        )
-        booth_count = cursor.fetchone()[0]
-        logger.info(f"Booth count for {electorate}: {booth_count}")
-
-        cursor.execute("SELECT id, electorate, booth_name FROM results")
-        all_results = cursor.fetchall()
-        logger.info(f"All results in table: {all_results}")
-
-        cursor.execute(
-            "SELECT COUNT(*) FROM results WHERE LOWER(electorate) = LOWER(?)",
+            """
+            SELECT id, timestamp, electorate, booth_name, is_reviewed
+            FROM results 
+            WHERE electorate = ?
+            ORDER BY timestamp DESC
+        """,
             (electorate,),
         )
-        case_insensitive_count = cursor.fetchone()[0]
+        all_electorate_results = cursor.fetchall()
         logger.info(
-            f"Case-insensitive booth count for {electorate}: {case_insensitive_count}"
+            f"Found {len(all_electorate_results)} total results for {electorate}:"
         )
+        for result in all_electorate_results:
+            logger.info(
+                f"Result ID: {result[0]}, Booth: {result[3]}, Reviewed: {result[4]}"
+            )
 
-        if case_insensitive_count > 0 and booth_count == 0:
-            booth_count = case_insensitive_count
-            logger.info(f"Using case-insensitive booth count: {booth_count}")
+        # Get reviewed results count
+        cursor.execute(
+            "SELECT COUNT(*) FROM results WHERE electorate = ? AND is_reviewed = 1",
+            (electorate,),
+        )
+        reviewed_count = cursor.fetchone()[0]
+        logger.info(f"Found {reviewed_count} reviewed results for {electorate}")
 
-        # Get the parent directory of the current file's directory
-        parent_dir = str(Path(__file__).parent.parent)
-        if parent_dir not in sys.path:
-            logger.info(f"Adding parent directory to Python path: {parent_dir}")
-            sys.path.append(parent_dir)
-
-        try:
-            from utils.booth_results_processor import get_polling_places_for_division
-        except ImportError:
-            sys.path.insert(0, os.path.join(parent_dir, "utils"))
-            from booth_results_processor import get_polling_places_for_division
-
-        polling_places = get_polling_places_for_division(electorate)
-        total_booths = len(polling_places) if polling_places else 0
-        logger.info(f"Total polling places for {electorate}: {total_booths}")
-
-        # Get results
+        # Get results with data
         cursor.execute(
             """
             SELECT id, timestamp, electorate, booth_name, image_url, data
             FROM results 
-            WHERE electorate = ? 
+            WHERE electorate = ? AND is_reviewed = 1
             ORDER BY timestamp DESC
         """,
             (electorate,),
@@ -1334,6 +1319,15 @@ async def api_dashboard(electorate: str):
                     )
 
             results.append(result)
+            logger.info(f"Processing result for booth: {result['booth_name']}")
+
+        logger.info(f"Total processed results: {len(results)}")
+
+        booth_count = reviewed_count
+        total_booths = len(results)
+        completion_percentage = (
+            (booth_count / total_booths * 100) if total_booths > 0 else 0
+        )
 
         booth_results = []
         primary_votes = {}
@@ -1428,9 +1422,7 @@ async def api_dashboard(electorate: str):
             "status": "success",
             "booth_count": booth_count,
             "total_booths": total_booths,
-            "completion_percentage": (
-                (booth_count / total_booths * 100) if total_booths > 0 else 0
-            ),
+            "completion_percentage": completion_percentage,
             "booth_results": booth_results,
             "primary_votes": primary_votes_array,
             "tcp_candidates": tcp_candidates_data,
@@ -1648,6 +1640,64 @@ async def manual_entry(request: Request):
     except Exception as e:
         logger.error(f"Error processing manual entry: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/results/{electorate}")
+async def get_electorate_results(electorate: str):
+    logger.info(f"Received request for results in electorate: {electorate}")
+    try:
+        # Connect to the database
+        db = SessionLocal()
+        logger.info("Connected to database")
+
+        # Get all results for the electorate
+        results = (
+            db.query(Result)
+            .filter(Result.electorate == electorate, Result.is_reviewed == 1)
+            .order_by(Result.timestamp.desc())
+            .all()
+        )
+
+        logger.info(
+            f"Found {len(results)} reviewed results for electorate {electorate}"
+        )
+
+        # Process results
+        booth_results = []
+        for result in results:
+            try:
+                result_data = json.loads(result.data)
+                logger.info(
+                    f"Processing result for booth {result.booth_name}: {result_data}"
+                )
+                booth_results.append(
+                    {
+                        "booth_name": result.booth_name,
+                        "data": result_data,
+                        "timestamp": result.timestamp.isoformat(),
+                    }
+                )
+            except json.JSONDecodeError as e:
+                logger.error(f"Error decoding JSON for result {result.id}: {str(e)}")
+                continue
+
+        logger.info(f"Successfully processed {len(booth_results)} booth results")
+
+        return {
+            "status": "success",
+            "electorate": electorate,
+            "booth_results": booth_results,
+            "booth_count": len(booth_results),
+            "total_booths": len(
+                booth_results
+            ),  # This should be updated with actual total booths
+        }
+    except Exception as e:
+        logger.error(f"Error getting results for electorate {electorate}: {str(e)}")
+        return {"status": "error", "message": str(e)}
+    finally:
+        db.close()
+        logger.info("Database connection closed")
 
 
 if __name__ == "__main__":

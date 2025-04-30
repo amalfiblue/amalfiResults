@@ -120,18 +120,28 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(() => {
         const selectedElectorate = document.querySelector('.list-group-item.active')?.textContent;
         if (selectedElectorate) {
+            console.log(`[Dashboard] Fetching results for electorate: ${selectedElectorate}`);
             fetch(`/api/results/${encodeURIComponent(selectedElectorate)}`)
-                .then(response => response.json())
+                .then(response => {
+                    console.log(`[Dashboard] Response status: ${response.status}`);
+                    return response.json();
+                })
                 .then(data => {
+                    console.log(`[Dashboard] Received data:`, data);
                     if (data.status === 'success') {
+                        console.log(`[Dashboard] Processing ${data.booth_results?.length || 0} booth results`);
                         updateCharts(charts.primaryVotesChart, charts.tcpVotesChart, data);
                         document.getElementById('booths-reporting').textContent = 
-                            `${data.booths_reporting} of ${data.total_booths} Booths Reporting`;
+                            `${data.booth_count} of ${data.total_booths} Booths Reporting`;
                         document.getElementById('last-updated').textContent = 
                             `Last Updated: ${new Date().toLocaleTimeString()}`;
+                    } else {
+                        console.error('[Dashboard] Error in response:', data.message);
                     }
                 })
-                .catch(error => console.error('Error updating results:', error));
+                .catch(error => {
+                    console.error('[Dashboard] Error fetching results:', error);
+                });
         }
     }, 30000); // Update every 30 seconds
 }); 
