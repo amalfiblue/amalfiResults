@@ -1194,20 +1194,44 @@ async def set_tcp_candidates(division: str, request: Request):
         return {"status": "error", "message": str(e)}
 
 
+class Candidate(Base):
+    __tablename__ = "candidates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    candidate_name = Column(String, index=True)
+    party = Column(String)
+    electorate = Column(String, index=True)
+    ballot_position = Column(Integer)
+    candidate_type = Column(String)
+    state = Column(String)
+    data = Column(String)  # JSON data as string
+
+
+class CandidateResponse(BaseModel):
+    id: int
+    candidate_name: str
+    party: Optional[str] = None
+    electorate: str
+    ballot_position: Optional[int] = None
+    candidate_type: str
+    state: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
+
+
 @app.get("/candidates")
 async def get_candidates(
-    electorate: Optional[str] = None, candidate_type: Optional[str] = None
+    division: Optional[str] = None, candidate_type: Optional[str] = None
 ):
     """
-    Get candidates, optionally filtered by electorate and/or candidate type
+    Get candidates, optionally filtered by division and/or candidate type
     """
     try:
         db = SessionLocal()
         try:
             query = db.query(Candidate)
 
-            if electorate:
-                query = query.filter(Candidate.electorate == electorate)
+            if division:
+                query = query.filter(Candidate.electorate == division)
             if candidate_type:
                 query = query.filter(Candidate.candidate_type == candidate_type)
 

@@ -87,10 +87,10 @@ async function loadPollingPlaces(electorate) {
     }
 }
 
-// Function to load results for an electorate
-async function loadResults(electorate) {
+// Function to load results for a division
+async function loadResults(division) {
     try {
-        const response = await fetch(`/api/results/electorate/${encodeURIComponent(electorate)}`);
+        const response = await fetch(`/api/results/division/${encodeURIComponent(division)}`);
         const data = await response.json();
         
         if (data.status === 'success') {
@@ -105,22 +105,15 @@ async function loadResults(electorate) {
     }
 }
 
-// Function to load TCP candidates for an electorate
-async function loadTCPCandidates(electorate) {
-    console.log('Loading TCP candidates for:', electorate);
+// Function to load TCP candidates for a division
+async function loadTCPCandidates(division) {
     try {
-        const response = await fetch(`/api/tcp-candidates/${encodeURIComponent(electorate)}`);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
+        const response = await fetch(`/api/tcp-candidates/division/${encodeURIComponent(division)}`);
+        if (!response.ok) throw new Error('Failed to fetch TCP candidates');
         
         const data = await response.json();
-        
         if (data.status === 'success') {
-            updateTCPCandidates(data.tcp_candidates);
-        } else {
-            throw new Error(data.message || 'Failed to load TCP candidates');
+            updateTCPCandidates(data.candidates);
         }
     } catch (error) {
         console.error('Error loading TCP candidates:', error);
