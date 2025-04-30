@@ -973,6 +973,9 @@ async def api_result_detail(result_id: int):
                     status_code=404, detail=f"Result with ID {result_id} not found"
                 )
 
+            # Parse the JSON data
+            result_data = json.loads(result.data) if result.data else {}
+
             return {
                 "status": "success",
                 "result": {
@@ -981,7 +984,7 @@ async def api_result_detail(result_id: int):
                     "electorate": result.electorate,
                     "booth_name": result.booth_name,
                     "image_url": result.image_url,
-                    "data": result.data,
+                    "data": result_data,
                 },
             }
         finally:
@@ -1696,7 +1699,7 @@ async def get_electorate_results(electorate: str):
 
         for result in results:
             try:
-                result_data = json.loads(result.data)
+                result_data = json.loads(result.data) if result.data else {}
                 logger.info(
                     f"Processing result for booth {result.booth_name}: {result_data}"
                 )
@@ -1719,9 +1722,13 @@ async def get_electorate_results(electorate: str):
 
                 booth_results.append(
                     {
+                        "id": result.id,
                         "booth_name": result.booth_name,
-                        "data": result_data,
                         "timestamp": result.timestamp.isoformat(),
+                        "image_url": result.image_url,
+                        "primary_votes": result_data.get("primary_votes", {}),
+                        "tcp_votes": result_data.get("two_candidate_preferred", {}),
+                        "totals": result_data.get("totals", {}),
                     }
                 )
             except json.JSONDecodeError as e:
@@ -1734,16 +1741,29 @@ async def get_electorate_results(electorate: str):
         ]
         tcp_votes_array = [{"candidate": k, "votes": v} for k, v in tcp_votes.items()]
 
+        # Calculate percentages
+        total_primary_votes = sum(primary_votes.values())
+        if total_primary_votes > 0:
+            for vote in primary_votes_array:
+                vote["percentage"] = (vote["votes"] / total_primary_votes) * 100
+
+        total_tcp_votes = sum(tcp_votes.values())
+        if total_tcp_votes > 0:
+            for vote in tcp_votes_array:
+                vote["percentage"] = (vote["votes"] / total_tcp_votes) * 100
+
         logger.info(f"Successfully processed {len(booth_results)} booth results")
 
         return {
             "status": "success",
-            "primary_votes": primary_votes_array,
-            "tcp_votes": tcp_votes_array,
             "booth_count": len(booth_results),
             "total_booths": len(
                 booth_results
             ),  # This should be updated with actual total booths
+            "booth_results": booth_results,
+            "primary_votes": primary_votes_array,
+            "tcp_votes": tcp_votes_array,
+            "last_updated": datetime.now(timezone.utc).isoformat(),
         }
     except Exception as e:
         logger.error(f"Error getting results for electorate {electorate}: {str(e)}")
