@@ -206,7 +206,7 @@
     function loadResultData() {
         const resultId = document.getElementById('resultId').value;
         
-        fetch(`/api/results/${resultId}`, {
+        fetch(`/api/admin/result/${resultId}`, {
             method: 'GET',
             headers: {
                 'Accept': 'application/json',
@@ -269,7 +269,7 @@
             
         if (confirm(confirmMessage)) {
             // Direct API call to FastAPI
-            fetch(`/api/results/${resultId}/review`, {
+            fetch(`/api/admin/review-result/${resultId}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
