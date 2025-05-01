@@ -1053,7 +1053,16 @@ async def get_unreviewed_results(division: str):
     try:
         db = SessionLocal()
         try:
-            results = db.query(Result).filter_by(electorate=division).all()
+            # Get all results for the division that haven't been reviewed
+            results = (
+                db.query(Result)
+                .filter(
+                    Result.electorate == division,
+                    Result.is_reviewed == 0,  # Only get unreviewed results
+                )
+                .all()
+            )
+
             unreviewed_results = [
                 {
                     "id": r.id,
@@ -1063,8 +1072,11 @@ async def get_unreviewed_results(division: str):
                     "image_url": r.image_url,
                 }
                 for r in results
-                if not (r.data and json.loads(r.data).get("reviewed"))
             ]
+
+            logger.info(
+                f"Found {len(unreviewed_results)} unreviewed results for division {division}"
+            )
             return {"status": "success", "unreviewed_results": unreviewed_results}
         finally:
             db.close()
