@@ -59,6 +59,20 @@
                             <div class="col-md-6 text-end">
                                 <form method="post" action="/admin/review-result/{{ result.id }}" id="reviewForm">
                                     <input type="hidden" name="action" id="actionInput" value="">
+                                    <input type="hidden" name="primary_votes" id="primaryVotesInput" value="">
+                                    <input type="hidden" name="tcp_votes" id="tcpVotesInput" value="">
+                                    <input type="hidden" name="totals" id="totalsInput" value="">
+                                    <div class="mb-4">
+                                        <label for="booth_name" class="form-label">Booth Name</label>
+                                        <input type="text" id="booth_name" name="booth_name" class="form-control mb-2" 
+                                               value="{{ result.booth_name }}" required>
+                                        
+                                        <label for="polling_place_selector" class="form-label">AEC Polling Place Helper</label>
+                                        <select id="polling_place_selector" class="form-select" onchange="updateBoothName(this.value)">
+                                            <option value="">Select a polling place...</option>
+                                        </select>
+                                        <small class="text-muted">Select a polling place to auto-fill the booth name, or manually enter the booth name above.</small>
+                                    </div>
                                     <button type="button" class="btn btn-success me-2" onclick="submitForm('approve')">
                                         Approve Result
                                     </button>
@@ -79,11 +93,11 @@
                                     <div class="card-body text-center">
                                         {% if result.image_url %}
                                             <div class="mb-3">
-                                                <a href="http://localhost:8000{{ result.image_url }}" target="_blank" class="btn btn-outline-primary mb-3">
+                                                <a href="{{ result.image_url }}" target="_blank" class="btn btn-outline-primary mb-3">
                                                     Open Image in New Tab
                                                 </a>
                                             </div>
-                                            <img src="http://localhost:8000{{ result.image_url }}" alt="Tally Sheet" class="img-fluid border" style="max-height: 800px;">
+                                            <img src="{{ result.image_url }}" alt="Tally Sheet" class="img-fluid border" style="max-height: 800px;">
                                         {% else %}
                                             <div class="alert alert-warning">
                                                 No image available for this result
@@ -105,7 +119,7 @@
                                         {% set primary_votes = result.get_primary_votes() %}
                                         {% if primary_votes %}
                                             <div class="table-responsive mb-4">
-                                                <table class="table table-bordered">
+                                                <table class="table table-bordered" id="primaryVotesTable">
                                                     <thead class="table-light">
                                                         <tr>
                                                             <th>Candidate</th>
@@ -116,7 +130,12 @@
                                                         {% for candidate, votes in primary_votes.items() %}
                                                         <tr>
                                                             <td>{{ candidate }}</td>
-                                                            <td>{{ votes }}</td>
+                                                            <td>
+                                                                <input type="number" class="form-control primary-vote" 
+                                                                    data-candidate="{{ candidate }}"
+                                                                    value="{{ votes }}" min="0"
+                                                                    onchange="updatePrimaryVotes()">
+                                                            </td>
                                                         </tr>
                                                         {% endfor %}
                                                     </tbody>
@@ -131,7 +150,7 @@
                                         {% set tcp_votes = result.get_tcp_votes() %}
                                         {% if tcp_votes %}
                                             <div class="table-responsive mb-4">
-                                                <table class="table table-bordered">
+                                                <table class="table table-bordered" id="tcpVotesTable">
                                                     <thead class="table-light">
                                                         <tr>
                                                             <th>Candidate</th>
@@ -154,7 +173,14 @@
                                                         <tr>
                                                             <td>{{ candidate }}</td>
                                                             {% for tcp_candidate in tcp_votes.keys() %}
-                                                                <td>{{ tcp_votes[tcp_candidate].get(candidate, '-') }}</td>
+                                                                <td>
+                                                                    <input type="number" class="form-control tcp-vote"
+                                                                        data-candidate="{{ candidate }}"
+                                                                        data-tcp-candidate="{{ tcp_candidate }}"
+                                                                        value="{{ tcp_votes[tcp_candidate].get(candidate, 0) }}"
+                                                                        min="0"
+                                                                        onchange="updateTCPVotes()">
+                                                                </td>
                                                             {% endfor %}
                                                         </tr>
                                                         {% endfor %}
@@ -169,7 +195,7 @@
                                         <h5>Vote Totals</h5>
                                         {% set totals = result.get_totals() %}
                                         <div class="table-responsive">
-                                            <table class="table table-bordered">
+                                            <table class="table table-bordered" id="totalsTable">
                                                 <thead class="table-light">
                                                     <tr>
                                                         <th>Category</th>
@@ -179,15 +205,30 @@
                                                 <tbody>
                                                     <tr>
                                                         <td>Formal Votes</td>
-                                                        <td>{{ totals.formal or 'Unknown' }}</td>
+                                                        <td>
+                                                            <input type="number" class="form-control total-vote"
+                                                                data-type="formal"
+                                                                value="{{ totals.formal or 0 }}" min="0"
+                                                                onchange="updateTotals()">
+                                                        </td>
                                                     </tr>
                                                     <tr>
                                                         <td>Informal Votes</td>
-                                                        <td>{{ totals.informal or 'Unknown' }}</td>
+                                                        <td>
+                                                            <input type="number" class="form-control total-vote"
+                                                                data-type="informal"
+                                                                value="{{ totals.informal or 0 }}" min="0"
+                                                                onchange="updateTotals()">
+                                                        </td>
                                                     </tr>
                                                     <tr>
                                                         <td>Total Votes</td>
-                                                        <td>{{ totals.total or 'Unknown' }}</td>
+                                                        <td>
+                                                            <input type="number" class="form-control total-vote"
+                                                                data-type="total"
+                                                                value="{{ totals.total or 0 }}" min="0"
+                                                                onchange="updateTotals()">
+                                                        </td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -206,15 +247,148 @@
 
 {% block extra_js %}
     <script>
-        function submitForm(action) {
+        const FASTAPI_URL = "/api";
+        
+        // Function to update booth name from selector
+        function updateBoothName(value) {
+            if (value) {
+                document.getElementById('booth_name').value = value;
+            }
+        }
+        
+        // Function to update primary votes data
+        function updatePrimaryVotes() {
+            const primaryVotes = {};
+            document.querySelectorAll('.primary-vote').forEach(input => {
+                primaryVotes[input.dataset.candidate] = parseInt(input.value) || 0;
+            });
+            document.getElementById('primaryVotesInput').value = JSON.stringify(primaryVotes);
+            validateVotes();
+        }
+
+        // Function to update TCP votes data
+        function updateTCPVotes() {
+            const tcpVotes = {};
+            document.querySelectorAll('.tcp-vote').forEach(input => {
+                const candidate = input.dataset.candidate;
+                const tcpCandidate = input.dataset.tcpCandidate;
+                if (!tcpVotes[tcpCandidate]) {
+                    tcpVotes[tcpCandidate] = {};
+                }
+                tcpVotes[tcpCandidate][candidate] = parseInt(input.value) || 0;
+            });
+            document.getElementById('tcpVotesInput').value = JSON.stringify(tcpVotes);
+            validateVotes();
+        }
+
+        // Function to update totals data
+        function updateTotals() {
+            const totals = {};
+            document.querySelectorAll('.total-vote').forEach(input => {
+                totals[input.dataset.type] = parseInt(input.value) || 0;
+            });
+            document.getElementById('totalsInput').value = JSON.stringify(totals);
+            validateVotes();
+        }
+
+        // Function to validate votes
+        function validateVotes() {
+            // Get all primary votes
+            let totalPrimaryVotes = 0;
+            document.querySelectorAll('.primary-vote').forEach(input => {
+                totalPrimaryVotes += parseInt(input.value) || 0;
+            });
+
+            // Get formal, informal, and total votes
+            const formalVotes = parseInt(document.querySelector('.total-vote[data-type="formal"]').value) || 0;
+            const informalVotes = parseInt(document.querySelector('.total-vote[data-type="informal"]').value) || 0;
+            const totalVotes = parseInt(document.querySelector('.total-vote[data-type="total"]').value) || 0;
+
+            // Validate totals
+            if (totalPrimaryVotes !== formalVotes) {
+                console.warn('Total primary votes does not equal formal votes');
+            }
+            if ((formalVotes + informalVotes) !== totalVotes) {
+                console.warn('Sum of formal and informal votes does not equal total votes');
+            }
+        }
+
+        // Function to submit the form
+        async function submitForm(action) {
             const confirmMessage = action === 'approve' 
                 ? 'Are you sure you want to approve this result?' 
                 : 'Are you sure you want to reject this result?';
                 
-            if (confirm(confirmMessage)) {
-                document.getElementById('actionInput').value = action;
-                document.getElementById('reviewForm').submit();
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+
+            // Update all data before submission
+            updatePrimaryVotes();
+            updateTCPVotes();
+            updateTotals();
+
+            const resultId = "{{ result.id }}";
+            const boothName = document.getElementById('booth_name').value;
+            
+            if (!boothName) {
+                alert('Please enter a booth name');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${FASTAPI_URL}/admin/review-result/${resultId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        action,
+                        booth_name: boothName,
+                        primary_votes: JSON.parse(document.getElementById('primaryVotesInput').value),
+                        tcp_votes: JSON.parse(document.getElementById('tcpVotesInput').value),
+                        totals: JSON.parse(document.getElementById('totalsInput').value)
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    window.location.href = '/admin/panel';
+                } else {
+                    alert(`Error: ${data.message}`);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('An error occurred while processing your request');
             }
         }
+
+        // Initialize the form with current values
+        document.addEventListener('DOMContentLoaded', function() {
+            updatePrimaryVotes();
+            updateTCPVotes();
+            updateTotals();
+            
+            // Load polling places
+            fetch(`${FASTAPI_URL}/polling-places/division/{{ result.electorate }}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        const select = document.getElementById('polling_place_selector');
+                        select.innerHTML = '<option value="">Select a polling place...</option>';
+                        
+                        data.polling_places.forEach(place => {
+                            const option = document.createElement('option');
+                            option.value = place.polling_place_name;
+                            option.textContent = place.polling_place_name;
+                            select.appendChild(option);
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading polling places:', error);
+                });
+        });
     </script>
 {% endblock %}

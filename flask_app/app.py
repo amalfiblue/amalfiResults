@@ -22,6 +22,7 @@ from flask import (
     session,
     get_flashed_messages,
     g,
+    send_from_directory,
 )
 from flask_socketio import SocketIO, emit
 from flask_login import (
@@ -52,82 +53,28 @@ from common.db_utils import get_sqlalchemy_url, ensure_database_exists
 
 load_dotenv()
 
-FASTAPI_URL = os.environ.get("FASTAPI_URL", "http://localhost:8000")
+FASTAPI_URL = "http://localhost:8000"
 
 
 def api_call(endpoint, method="get", data=None, params=None):
-    """Make an API call to the FastAPI service with robust DNS resolution"""
-    # Try multiple methods to resolve the FastAPI service
-    fastapi_urls = []
-
-    if FASTAPI_URL:
-        fastapi_urls.append(FASTAPI_URL)
-
+    """Make an API call to the FastAPI service"""
+    url = f"{FASTAPI_URL}{endpoint}"
     try:
-        import socket
+        app.logger.info(f"Making {method.upper()} request to {url}")
+        if method.lower() == "get":
+            response = requests.get(url, params=params, timeout=5)
+        elif method.lower() == "post":
+            response = requests.post(url, json=data, timeout=5)
+        elif method.lower() == "delete":
+            response = requests.delete(url, timeout=5)
+        else:
+            raise ValueError(f"Unsupported HTTP method: {method}")
 
-        ip = socket.gethostbyname("results_fastapi_app")
-        fastapi_urls.append(f"http://{ip}:8000")
-    except Exception as e:
-        app.logger.warning(
-            f"Could not resolve results_fastapi_app via gethostbyname: {e}"
-        )
-
-    try:
-        import socket
-
-        addrinfo = socket.getaddrinfo(
-            "results_fastapi_app", 8000, socket.AF_INET, socket.SOCK_STREAM
-        )
-        if addrinfo:
-            ip = addrinfo[0][4][0]
-            fastapi_urls.append(f"http://{ip}:8000")
-    except Exception as e:
-        app.logger.warning(
-            f"Could not resolve results_fastapi_app via getaddrinfo: {e}"
-        )
-
-    try:
-        import subprocess
-
-        result = subprocess.run(
-            ["getent", "hosts", "results_fastapi_app"], capture_output=True, text=True
-        )
-        if result.returncode == 0 and result.stdout:
-            ip = result.stdout.split()[0]
-            fastapi_urls.append(f"http://{ip}:8000")
-    except Exception as e:
-        app.logger.warning(f"Could not resolve results_fastapi_app via getent: {e}")
-
-    fastapi_urls.append("http://localhost:8000")
-
-    seen = set()
-    fastapi_urls = [x for x in fastapi_urls if not (x in seen or seen.add(x))]
-
-    last_error = None
-    for base_url in fastapi_urls:
-        url = f"{base_url}{endpoint}"
-        try:
-            app.logger.info(f"Trying FastAPI URL: {url}")
-            if method.lower() == "get":
-                response = requests.get(url, params=params, timeout=5)
-            elif method.lower() == "post":
-                response = requests.post(url, json=data, timeout=5)
-            elif method.lower() == "delete":
-                response = requests.delete(url, timeout=5)
-            else:
-                raise ValueError(f"Unsupported HTTP method: {method}")
-
-            response.raise_for_status()
-            app.logger.info(f"Successfully connected to FastAPI at {base_url}")
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            last_error = e
-            app.logger.warning(f"Failed to connect to {base_url}: {e}")
-            continue
-
-    app.logger.error(f"All API connection attempts failed. Last error: {last_error}")
-    return {"status": "error", "message": str(last_error)}
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"Failed to connect to FastAPI: {e}")
+        return {"status": "error", "message": str(e)}
 
 
 # Determine if running in Docker
@@ -148,6 +95,14 @@ app.config["INSTANCE_PATH"] = (
     data_dir_path  # Force Flask to use our data directory for instance files
 )
 
+
+# Serve files from the uploads directory
+@app.route("/uploads/<path:filename>")
+def serve_upload(filename):
+    """Serve files from the uploads directory"""
+    return send_from_directory(str(Path(data_dir_path) / "uploads"), filename)
+
+
 db = SQLAlchemy(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
@@ -156,6 +111,12 @@ login_manager.login_view = "login"
 login_manager.login_message_category = "info"
 
 app.config["IS_ADMIN"] = False
+
+
+# Add context processor to make FastAPI URL available to all templates
+@app.context_processor
+def inject_fastapi_url():
+    return dict(fastapi_url=FASTAPI_URL)
 
 
 class Result:
@@ -393,17 +354,36 @@ def get_results():
 
 @app.route("/results/<int:result_id>")
 def get_result_detail(result_id):
-    """Get result detail page - frontend directly queries FastAPI"""
-    # Initialize empty result object - frontend will populate via direct API call
-    result = Result()
-    result.id = result_id
+    """Get result detail page with initial data from FastAPI"""
+    # Get initial data from FastAPI
+    response = requests.get(f"{FASTAPI_URL}/results/{result_id}")
+    if response.status_code == 200:
+        data = response.json()
+        if data["status"] == "success":
+            result_data = data["result"]
+
+            # Create a result object with the data
+            result = Result(
+                id=result_data["id"],
+                image_url=result_data["image_url"],
+                timestamp=result_data["timestamp"],
+                electorate=result_data["electorate"],
+                booth_name=result_data["booth_name"],
+                data=result_data["data"],
+            )
+        else:
+            flash(f"Error: {data.get('message', 'Unknown error')}", "error")
+            result = Result(id=result_id)
+    else:
+        flash("Error retrieving result from API", "error")
+        result = Result(id=result_id)
 
     messages = []
     for category, message in get_flashed_messages(with_categories=True):
         messages.append((category, message))
 
     return render_template(
-        "result_detail_new.html",
+        "result_detail.html",
         result=result,
         messages=messages,
         is_admin=current_user.is_admin if hasattr(current_user, "is_admin") else False,
@@ -724,49 +704,57 @@ def admin_reset_results():
 @app.route("/admin/review-result/<int:result_id>", methods=["GET", "POST"])
 @login_required
 def admin_review_result(result_id):
-    """Admin page to review and approve a result - frontend directly queries FastAPI"""
+    """Review a specific result"""
     if not current_user.is_admin:
         flash("Admin access required", "error")
-        return redirect(url_for("get_dashboard"))
+        return redirect(url_for("index"))
 
-    # Initialize empty result - data will be loaded by frontend directly from FastAPI
-    result = Result(
-        id=result_id,
-        image_url="",
-        timestamp=datetime.datetime.now(),
-        electorate="",
-        booth_name="",
-        data={},
-    )
+    # Get result from FastAPI
+    response = requests.get(f"{FASTAPI_URL}/admin/result/{result_id}")
+    if response.status_code == 200:
+        data = response.json()
+        if data["status"] == "success":
+            result_data = data["result"]
 
-    if request.method == "POST":
-        action = request.form.get("action")
-        electorate = request.form.get("electorate")
+            # Create a result object with the required methods
+            class ResultWrapper:
+                def __init__(self, data):
+                    self.id = data["id"]
+                    self.timestamp = datetime.fromisoformat(data["timestamp"])
+                    self.electorate = data["electorate"]
+                    self.booth_name = data["booth_name"]
+                    self.image_url = data["image_url"]
+                    self._data = data["data"]
 
-        if electorate:
-            socketio.emit("update", {"electorate": electorate}, namespace="/dashboard")
+                def get_primary_votes(self):
+                    return self._data.get("primary_votes", {})
 
-            if action == "approve":
-                flash("Result approved successfully", "success")
-            elif action == "reject":
-                flash("Result rejected", "warning")
+                def get_tcp_votes(self):
+                    return self._data.get("two_candidate_preferred", {})
 
-            return redirect(url_for("admin_polling_places", division=electorate))
+                def get_totals(self):
+                    return self._data.get("totals", {})
+
+            result = ResultWrapper(result_data)
+
+            messages = []
+            for category, message in get_flashed_messages(with_categories=True):
+                messages.append((category, message))
+
+            return render_template(
+                "admin_review_result.html",
+                result=result,
+                messages=messages,
+                electorates=get_all_electorates(),
+                selected_electorate="",
+                is_admin=current_user.is_admin,
+            )
         else:
-            flash("Missing electorate information", "error")
+            flash(f"Error: {data.get('message', 'Unknown error')}", "error")
+    else:
+        flash("Error retrieving result from API", "error")
 
-    messages = []
-    for category, message in get_flashed_messages(with_categories=True):
-        messages.append((category, message))
-
-    return render_template(
-        "admin_review_result_new.html",
-        result=result,
-        messages=messages,
-        electorates=get_all_electorates(),
-        selected_electorate="",
-        is_admin=current_user.is_admin,
-    )
+    return redirect(url_for("admin_panel"))
 
 
 @app.route("/admin/panel", methods=["GET"])
@@ -1005,74 +993,11 @@ def admin_upload_image():
             "file": (image_file.filename, image_file.read(), image_file.content_type)
         }
 
-        response = None
-        fastapi_urls = []
-
-        if FASTAPI_URL:
-            fastapi_urls.append(FASTAPI_URL)
-
-        fastapi_urls.append("http://results_fastapi_app:8000")
-
-        try:
-            import socket
-
-            ip = socket.gethostbyname("results_fastapi_app")
-            fastapi_urls.append(f"http://{ip}:8000")
-        except Exception as e:
-            app.logger.warning(
-                f"Could not resolve results_fastapi_app via gethostbyname: {e}"
-            )
-
-        try:
-            import socket
-
-            addrinfo = socket.getaddrinfo(
-                "results_fastapi_app", 8000, socket.AF_INET, socket.SOCK_STREAM
-            )
-            if addrinfo:
-                ip = addrinfo[0][4][0]
-                fastapi_urls.append(f"http://{ip}:8000")
-        except Exception as e:
-            app.logger.warning(
-                f"Could not resolve results_fastapi_app via getaddrinfo: {e}"
-            )
-
-        try:
-            import subprocess
-
-            result = subprocess.run(
-                ["getent", "hosts", "results_fastapi_app"],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0 and result.stdout:
-                ip = result.stdout.split()[0]
-                fastapi_urls.append(f"http://{ip}:8000")
-        except Exception as e:
-            app.logger.warning(f"Could not resolve results_fastapi_app via getent: {e}")
-
-        fastapi_urls.append("http://localhost:8000")
-
-        seen = set()
-        fastapi_urls = [x for x in fastapi_urls if not (x in seen or seen.add(x))]
-
-        last_error = None
-        for base_url in fastapi_urls:
-            url = f"{base_url}/scan-image"
-            try:
-                app.logger.info(f"Trying to upload image to FastAPI URL: {url}")
-                response = requests.post(url, files=files, timeout=30)
-                response.raise_for_status()
-                app.logger.info(f"Successfully uploaded image to FastAPI at {base_url}")
-                break
-            except requests.exceptions.RequestException as e:
-                last_error = e
-                app.logger.warning(f"Failed to connect to {base_url}: {e}")
-                continue
-
-        if response is None or response.status_code != 200:
-            flash(f"Failed to process image: {last_error}", "error")
-            return redirect(url_for("admin_panel"))
+        url = f"{FASTAPI_URL}/scan-image"
+        app.logger.info(f"Uploading image to FastAPI URL: {url}")
+        response = requests.post(url, files=files, timeout=30)
+        response.raise_for_status()
+        app.logger.info("Successfully uploaded image to FastAPI")
 
         result_data = response.json()
         if result_data.get("status") == "success":
@@ -1085,10 +1010,8 @@ def admin_upload_image():
                 "error",
             )
             return redirect(url_for("admin_panel"))
-
-    except Exception as e:
-        app.logger.error(f"Error processing image upload: {e}", exc_info=True)
-        flash(f"Error processing image: {str(e)}", "error")
+    except requests.exceptions.RequestException as e:
+        flash(f"Failed to process image: {str(e)}", "error")
         return redirect(url_for("admin_panel"))
 
 
@@ -1123,6 +1046,23 @@ def api_proxy(path):
     except Exception as e:
         app.logger.error(f"Error proxying {method} request to /{path}: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/manual-entry")
+@login_required
+def manual_entry():
+    """Manual entry page for booth results"""
+    if not current_user.is_admin:
+        flash("Admin access required", "error")
+        return redirect(url_for("get_dashboard"))
+
+    messages = []
+    for category, message in get_flashed_messages(with_categories=True):
+        messages.append((category, message))
+
+    return render_template(
+        "manual_entry.html", messages=messages, is_admin=current_user.is_admin
+    )
 
 
 if __name__ == "__main__":

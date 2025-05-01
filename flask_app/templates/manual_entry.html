@@ -1,0 +1,349 @@
+{% extends "base.html" %}
+
+{% block title %}Manual Entry - Amalfi Results{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="card">
+        <div class="card-header">
+            <h4 class="mb-0">Manual Result Entry</h4>
+        </div>
+        <div class="card-body">
+            <form id="manualEntryForm">
+                <div class="row mb-3">
+                    <div class="col-md-12">
+                        <label for="booth_name" class="form-label">Polling Place</label>
+                        <select class="form-select" id="booth_name" name="booth_name" required>
+                            <option value="">Select Polling Place...</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0">Candidate Votes</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-bordered">
+                                <thead>
+                                    <tr>
+                                        <th>Candidate</th>
+                                        <th>Primary Votes</th>
+                                        <th>Votes to Steggall</th>
+                                        <th>Votes to Rogers</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="candidateVotesContainer">
+                                    <!-- Candidate votes will be added here dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0">Vote Totals</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <label for="formal_votes" class="form-label">Formal Votes</label>
+                                <input type="number" class="form-control" id="formal_votes" name="formal_votes" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="informal_votes" class="form-label">Informal Votes</label>
+                                <input type="number" class="form-control" id="informal_votes" name="informal_votes" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="total_votes" class="form-label">Total Votes</label>
+                                <input type="number" class="form-control" id="total_votes" name="total_votes" readonly>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="text-end">
+                    <button type="submit" class="btn btn-primary">Save Result</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let candidates = [];
+let tcpCandidates = [];
+let currentDivision = '{{ g.selected_division }}';
+
+// Load polling places and candidates when the page loads
+document.addEventListener('DOMContentLoaded', function() {
+    if (currentDivision) {
+        loadPollingPlaces(currentDivision);
+        loadCandidates(currentDivision);
+        loadTCPCandidates(currentDivision);
+    } else {
+        alert('Please select a division from the navbar first');
+        window.location.href = '/';
+    }
+    setupEventListeners();
+});
+
+// Set up event listeners
+function setupEventListeners() {
+    // Auto-calculate total votes
+    document.getElementById('formal_votes').addEventListener('input', calculateTotal);
+    document.getElementById('informal_votes').addEventListener('input', calculateTotal);
+
+    // Form submission
+    document.getElementById('manualEntryForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        submitForm();
+    });
+}
+
+function calculateTotal() {
+    const formal = parseInt(document.getElementById('formal_votes').value) || 0;
+    const informal = parseInt(document.getElementById('informal_votes').value) || 0;
+    document.getElementById('total_votes').value = formal + informal;
+}
+
+// Add validation functions
+function validatePrimaryVotes() {
+    let totalPrimaryVotes = 0;
+    document.querySelectorAll('.primary-vote').forEach(input => {
+        totalPrimaryVotes += parseInt(input.value) || 0;
+    });
+    const formalVotes = parseInt(document.getElementById('formal_votes').value) || 0;
+    return totalPrimaryVotes === formalVotes;
+}
+
+function validateTotalVotes() {
+    const formal = parseInt(document.getElementById('formal_votes').value) || 0;
+    const informal = parseInt(document.getElementById('informal_votes').value) || 0;
+    const total = parseInt(document.getElementById('total_votes').value) || 0;
+    return (formal + informal) === total;
+}
+
+function validateTCPVotes() {
+    let totalPrimaryVotes = 0;
+    let totalTCPVotes = 0;
+    
+    // Calculate total primary votes excluding TCP candidates
+    document.querySelectorAll('.primary-vote').forEach(input => {
+        const candidateName = input.dataset.candidate;
+        if (candidateName !== 'STEGGALL' && candidateName !== 'ROGERS') {
+            totalPrimaryVotes += parseInt(input.value) || 0;
+        }
+    });
+    
+    // Calculate total TCP votes
+    document.querySelectorAll('.tcp-vote').forEach(input => {
+        totalTCPVotes += parseInt(input.value) || 0;
+    });
+    
+    return totalTCPVotes === totalPrimaryVotes;
+}
+
+function showValidationError(message) {
+    alert(message);
+    return false;
+}
+
+function loadPollingPlaces(electorate) {
+    fetch(`/api/polling-places/division/${encodeURIComponent(electorate)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                const select = document.getElementById('booth_name');
+                select.innerHTML = '<option value="">Select Polling Place...</option>';
+                data.polling_places.forEach(place => {
+                    const option = document.createElement('option');
+                    option.value = place.polling_place_name;
+                    option.textContent = place.polling_place_name;
+                    select.appendChild(option);
+                });
+            }
+        })
+        .catch(error => console.error('Error loading polling places:', error));
+}
+
+function loadCandidates(electorate) {
+    fetch(`/api/candidates?electorate=${encodeURIComponent(electorate)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                candidates = data.candidates;
+                renderCandidateVotes();
+            }
+        })
+        .catch(error => console.error('Error loading candidates:', error));
+}
+
+function loadTCPCandidates(electorate) {
+    fetch(`/api/tcp-candidates/division/${encodeURIComponent(electorate)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                tcpCandidates = data.candidates;
+                renderCandidateVotes(); // Re-render to update TCP columns
+            }
+        })
+        .catch(error => console.error('Error loading TCP candidates:', error));
+}
+
+function renderCandidateVotes() {
+    const container = document.getElementById('candidateVotesContainer');
+    container.innerHTML = '';
+    
+    candidates.forEach(candidate => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${candidate.candidate_name} (${candidate.party || 'Independent'})</td>
+            <td>
+                <input type="number" class="form-control primary-vote" 
+                       data-candidate="${candidate.candidate_name}" required>
+            </td>
+            <td>
+                <input type="number" class="form-control tcp-vote" 
+                       data-tcp="STEGGALL"
+                       data-from="${candidate.candidate_name}"
+                       ${candidate.candidate_name === 'STEGGALL' ? 'readonly' : ''}>
+            </td>
+            <td>
+                <input type="number" class="form-control tcp-vote" 
+                       data-tcp="ROGERS"
+                       data-from="${candidate.candidate_name}"
+                       ${candidate.candidate_name === 'ROGERS' ? 'readonly' : ''}>
+            </td>
+        `;
+        container.appendChild(row);
+    });
+
+    // Add event listeners for primary vote changes
+    document.querySelectorAll('.primary-vote').forEach(input => {
+        input.addEventListener('change', function() {
+            const candidateName = this.dataset.candidate;
+            const primaryVotes = parseInt(this.value) || 0;
+            
+            // Find the TCP inputs for this candidate
+            const tcpInputs = document.querySelectorAll(`.tcp-vote[data-from="${candidateName}"]`);
+            let totalTCP = 0;
+            
+            tcpInputs.forEach(tcpInput => {
+                const tcpVotes = parseInt(tcpInput.value) || 0;
+                totalTCP += tcpVotes;
+            });
+
+            // If TCP votes exceed primary votes, reset TCP votes
+            if (totalTCP > primaryVotes) {
+                tcpInputs.forEach(tcpInput => {
+                    tcpInput.value = '';
+                });
+            }
+        });
+    });
+
+    // Add event listeners for TCP vote changes
+    document.querySelectorAll('.tcp-vote').forEach(input => {
+        input.addEventListener('change', function() {
+            const candidateName = this.dataset.from;
+            const primaryInput = document.querySelector(`.primary-vote[data-candidate="${candidateName}"]`);
+            const primaryVotes = parseInt(primaryInput.value) || 0;
+            
+            // Get all TCP votes for this candidate
+            const tcpInputs = document.querySelectorAll(`.tcp-vote[data-from="${candidateName}"]`);
+            let totalTCP = 0;
+            
+            tcpInputs.forEach(tcpInput => {
+                const tcpVotes = parseInt(tcpInput.value) || 0;
+                totalTCP += tcpVotes;
+            });
+
+            // If total TCP votes exceed primary votes, reset this TCP input
+            if (totalTCP > primaryVotes) {
+                this.value = '';
+                alert(`Total TCP votes cannot exceed primary votes (${primaryVotes})`);
+            }
+        });
+    });
+}
+
+function submitForm() {
+    if (!currentDivision) {
+        return showValidationError('Please select a division from the navbar first');
+    }
+
+    // Validate primary votes match formal votes
+    if (!validatePrimaryVotes()) {
+        return showValidationError('Total primary votes must equal formal votes');
+    }
+    
+    // Validate total votes
+    if (!validateTotalVotes()) {
+        return showValidationError('Formal votes plus informal votes must equal total votes');
+    }
+    
+    // Validate TCP votes
+    if (!validateTCPVotes()) {
+        return showValidationError('Total votes to Steggall and Rogers must equal the sum of primary votes for all other candidates');
+    }
+    
+    const boothName = document.getElementById('booth_name').value;
+    
+    // Collect primary votes
+    const primaryVotes = {};
+    document.querySelectorAll('.primary-vote').forEach(input => {
+        primaryVotes[input.dataset.candidate] = parseInt(input.value) || 0;
+    });
+    
+    // Collect TCP votes
+    const tcpVotes = {
+        'STEGGALL': {},
+        'ROGERS': {}
+    };
+    
+    document.querySelectorAll('.tcp-vote').forEach(input => {
+        const fromCandidate = input.dataset.from;
+        const toCandidate = input.dataset.tcp;
+        tcpVotes[toCandidate][fromCandidate] = parseInt(input.value) || 0;
+    });
+    
+    const data = {
+        electorate: currentDivision,
+        booth_name: boothName,
+        primary_votes: primaryVotes,
+        two_candidate_preferred: tcpVotes,
+        totals: {
+            formal: parseInt(document.getElementById('formal_votes').value) || 0,
+            informal: parseInt(document.getElementById('informal_votes').value) || 0,
+            total: parseInt(document.getElementById('total_votes').value) || 0
+        }
+    };
+    
+    fetch('/api/manual-entry', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert('Result saved successfully!');
+            window.location.href = `/results/${data.result_id}`;
+        } else {
+            alert(`Error: ${data.message || 'Unknown error'}`);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error saving result');
+    });
+}
+</script>
+{% endblock %} 

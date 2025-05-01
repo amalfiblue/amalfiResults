@@ -41,7 +41,7 @@
 {% block extra_js %}
 <script>
     // FastAPI server URL
-    const FASTAPI_URL = 'http://localhost:8000';  // Update this if your FastAPI server is on a different URL
+    const FASTAPI_URL = '{{ fastapi_url }}';
 
     // Load results directly from FastAPI when the page loads
     document.addEventListener('DOMContentLoaded', function() {
@@ -52,7 +52,7 @@
     function getFullImageUrl(relativeUrl) {
         if (!relativeUrl) return null;
         if (relativeUrl.startsWith('http')) return relativeUrl;
-        return `${FASTAPI_URL}${relativeUrl}`;
+        return relativeUrl;  // Already includes /uploads prefix
     }
     
     // Function to load results from FastAPI

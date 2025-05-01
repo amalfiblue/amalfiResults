@@ -43,7 +43,12 @@
                                         </tr>
                                         <tr>
                                             <th>Booth Name</th>
-                                            <td>{{ result.booth_name or 'Unknown' }}</td>
+                                            <td>
+                                                <div class="input-group">
+                                                    <input type="text" class="form-control" id="boothName" value="{{ result.booth_name or 'Unknown' }}">
+                                                    <button class="btn btn-outline-primary" type="button" onclick="updateBoothName()">Update</button>
+                                                </div>
+                                            </td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -202,6 +207,34 @@
             </div>
         </div>
     </div>
+
+    <input type="hidden" id="resultId" value="{{ result.id }}">
+    <script>
+        function updateBoothName() {
+            const boothName = document.getElementById('boothName').value;
+            const resultId = document.getElementById('resultId').value;
+            
+            fetch(`/api/results/${resultId}/update-booth-name`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ booth_name: boothName })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    alert('Booth name updated successfully');
+                } else {
+                    alert('Error updating booth name: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error updating booth name');
+            });
+        }
+    </script>
 
 {% endblock %}
 

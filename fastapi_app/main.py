@@ -755,7 +755,7 @@ async def get_booth_results(
     booth: Optional[str] = None,
 ):
     """
-    Get polling places for a specific division/booth
+    Get polling places for a specific division/booth with TCP results between the actual TCP candidates
     """
     try:
         import sys
@@ -777,6 +777,7 @@ async def get_booth_results(
                 "message": "Division/electorate parameter is required",
             }
 
+        # Get polling places
         polling_places = get_polling_places_for_division(division_name)
         logger.info(
             f"Retrieved {len(polling_places)} polling places for division {division_name}"
@@ -788,8 +789,100 @@ async def get_booth_results(
                 p for p in polling_places if p["polling_place_name"] == booth
             ]
 
+        # Get TCP candidates for this division
+        db = SessionLocal()
+        try:
+            # Get current TCP candidates
+            tcp_candidates = (
+                db.query(TCPCandidate).filter_by(electorate=division_name).all()
+            )
+
+            # Get candidate names, defaulting to generic terms if not set
+            tcp_candidate_1_name = "TCP Candidate 1"
+            tcp_candidate_2_name = "TCP Candidate 2"
+
+            if len(tcp_candidates) >= 2:
+                tcp_candidate_1_name = tcp_candidates[0].candidate_name
+                tcp_candidate_2_name = tcp_candidates[1].candidate_name
+            elif len(tcp_candidates) == 1:
+                tcp_candidate_1_name = tcp_candidates[0].candidate_name
+
+            # Get results for this division
+            results = db.query(Result).filter_by(electorate=division_name).all()
+
+            # Create a mapping of booth names to results
+            results_map = {}
+            for result in results:
+                if result.aec_booth_name:
+                    booth_name = result.aec_booth_name.upper()
+                elif result.booth_name:
+                    booth_name = result.booth_name.upper()
+                else:
+                    continue
+
+                # Parse the result data
+                result_data = json.loads(result.data) if result.data else {}
+                tcp_data = result_data.get("two_candidate_preferred", {})
+
+                # Get TCP percentages
+                tcp_candidate_1_percentage = None
+                tcp_candidate_2_percentage = None
+
+                if tcp_data and len(tcp_candidates) >= 2:
+                    tcp1_name = tcp_candidates[0].candidate_name
+                    tcp2_name = tcp_candidates[1].candidate_name
+
+                    if tcp1_name in tcp_data and tcp2_name in tcp_data:
+                        tcp1_votes = sum(tcp_data[tcp1_name].values())
+                        tcp2_votes = sum(tcp_data[tcp2_name].values())
+                        total_votes = tcp1_votes + tcp2_votes
+
+                        if total_votes > 0:
+                            tcp_candidate_1_percentage = (
+                                tcp1_votes / total_votes
+                            ) * 100
+                            tcp_candidate_2_percentage = (
+                                tcp2_votes / total_votes
+                            ) * 100
+
+                results_map[booth_name] = {
+                    "tcp_candidate_1_percentage": tcp_candidate_1_percentage,
+                    "tcp_candidate_2_percentage": tcp_candidate_2_percentage,
+                    "swing": None,  # We'll calculate this later
+                    "is_reviewed": result.is_reviewed,
+                    "result_id": result.id,
+                }
+
+            # Get 2022 results for swing calculation
+            cursor = db.execute(
+                text(
+                    """
+                SELECT polling_place_name, 
+                       liberal_national_percentage
+                FROM booth_results_2022
+                WHERE division_name = :electorate
+            """
+                ),
+                {"electorate": division_name},
+            )
+            results_2022 = {
+                row[0]: {
+                    "tcp1_name": tcp_candidate_1_name,
+                    "tcp2_name": tcp_candidate_2_name,
+                    "tcp1_pct": 100
+                    - row[1],  # TCP1 percentage is 100 - Liberal National percentage
+                    "tcp2_pct": row[1],  # TCP2 is Liberal National percentage
+                }
+                for row in cursor.fetchall()
+            }
+        finally:
+            db.close()
+
         return {
             "status": "success",
+            "tcp_candidate_1_name": tcp_candidate_1_name,
+            "tcp_candidate_2_name": tcp_candidate_2_name,
+            "results_map": results_map,
             "booth_results": [
                 {
                     "id": p["id"],
@@ -799,6 +892,13 @@ async def get_booth_results(
                     "status": p["status"],
                     "wheelchair_access": p["wheelchair_access"],
                     "data": json.loads(p["data"]) if p["data"] else {},
+                    # TCP data
+                    "tcp_candidate_1_percentage": None,
+                    "tcp_candidate_2_percentage": None,
+                    "is_reviewed": 0,
+                    # 2022 TCP data
+                    "tcp_2022": results_2022.get(p["polling_place_name"], None),
+                    "swing": None,
                 }
                 for p in polling_places
             ],
@@ -806,6 +906,68 @@ async def get_booth_results(
     except Exception as e:
         logger.error(f"Error getting booth results for division {division_name}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def calculate_tcp_swing(
+    current_tcp1, current_tcp2, current_tcp1_name, current_tcp2_name, previous_result
+):
+    """
+    Calculate the swing between current and previous TCP results.
+    Takes into account that TCP candidates might be in different orders between years,
+    and handles cases where we can compare Liberal candidate performance even when
+    the independent candidate has changed.
+    Returns the swing percentage (positive means swing to current TCP candidate 1)
+    """
+    if (
+        not current_tcp1
+        or not current_tcp2
+        or not previous_result
+        or not current_tcp1_name
+        or not current_tcp2_name
+    ):
+        return None
+
+    prev = previous_result
+
+    # First try to match candidates by name
+    current_liberal = None
+    prev_liberal = None
+
+    # Find which current candidate is Liberal
+    if "LIBERAL" in current_tcp1_name.upper():
+        current_liberal = {"name": current_tcp1_name, "pct": current_tcp1}
+    elif "LIBERAL" in current_tcp2_name.upper():
+        current_liberal = {"name": current_tcp2_name, "pct": current_tcp2}
+
+    # Find which previous candidate was Liberal
+    if "LIBERAL" in prev["tcp1_name"].upper():
+        prev_liberal = {"name": prev["tcp1_name"], "pct": prev["tcp1_pct"]}
+    elif "LIBERAL" in prev["tcp2_name"].upper():
+        prev_liberal = {"name": prev["tcp2_name"], "pct": prev["tcp2_pct"]}
+
+    # If we have both Liberal candidates, calculate swing based on their performance
+    if current_liberal and prev_liberal:
+        # Calculate swing to Liberal (positive means swing to Liberal)
+        swing = current_liberal["pct"] - prev_liberal["pct"]
+        return round(swing, 2)
+
+    # If we can't match by Liberal party, try matching by candidate names
+    if (
+        prev["tcp1_name"] == current_tcp2_name
+        and prev["tcp2_name"] == current_tcp1_name
+    ):
+        # Candidates are in opposite order, flip the previous results
+        prev_tcp1 = prev["tcp2_pct"]
+        prev_tcp2 = prev["tcp1_pct"]
+    else:
+        # Candidates are in same order (or different candidates)
+        prev_tcp1 = prev["tcp1_pct"]
+        prev_tcp2 = prev["tcp2_pct"]
+
+    # Calculate the swing
+    swing = ((current_tcp1 - prev_tcp1) - (current_tcp2 - prev_tcp2)) / 2
+
+    return round(swing, 2)
 
 
 @app.post("/admin/reset-results")
@@ -995,6 +1157,9 @@ async def review_result(result_id: int, request: Request):
         aec_booth_name = data.get(
             "booth_name"
         )  # Get the AEC booth name from the request
+        primary_votes = data.get("primary_votes")  # Get edited primary votes
+        tcp_votes = data.get("tcp_votes")  # Get edited TCP votes
+        totals = data.get("totals")  # Get edited totals
 
         if action not in ["approve", "reject"]:
             raise HTTPException(
@@ -1014,6 +1179,14 @@ async def review_result(result_id: int, request: Request):
 
             # Parse the existing data JSON string
             result_data = json.loads(result.data) if result.data else {}
+
+            # Update the data with edited values if provided
+            if primary_votes is not None:
+                result_data["primary_votes"] = primary_votes
+            if tcp_votes is not None:
+                result_data["two_candidate_preferred"] = tcp_votes
+            if totals is not None:
+                result_data["totals"] = totals
 
             # Update the review status
             result_data["reviewed"] = True
@@ -1462,6 +1635,140 @@ async def get_polling_places(division: str):
             db.close()
     except Exception as e:
         logger.error(f"Error getting polling places for division {division}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/manual-entry")
+async def manual_entry(request: Request):
+    """
+    Handle manual entry of booth results
+    """
+    try:
+        data = await request.json()
+
+        # Validate required fields
+        if not data.get("booth_name") or not data.get("electorate"):
+            raise HTTPException(
+                status_code=400, detail="Booth name and electorate are required"
+            )
+
+        db = SessionLocal()
+        try:
+            # If updating existing result
+            if data.get("result_id"):
+                result = db.query(Result).filter_by(id=data["result_id"]).first()
+                if not result:
+                    raise HTTPException(status_code=404, detail="Result not found")
+
+                result.booth_name = data["booth_name"]
+                result.electorate = data["electorate"]
+                result.data = json.dumps(
+                    {
+                        "primary_votes": data.get("primary_votes", {}),
+                        "two_candidate_preferred": data.get(
+                            "two_candidate_preferred", {}
+                        ),
+                        "totals": data.get("totals", {}),
+                        "reviewed": True,
+                        "approved": True,
+                        "reviewed_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+                result.is_reviewed = 1
+                result.reviewer = "Manual Entry"
+                db_result = result
+            else:
+                # Create new result
+                db_result = Result(
+                    booth_name=data["booth_name"],
+                    electorate=data["electorate"],
+                    data=json.dumps(
+                        {
+                            "primary_votes": data.get("primary_votes", {}),
+                            "two_candidate_preferred": data.get(
+                                "two_candidate_preferred", {}
+                            ),
+                            "totals": data.get("totals", {}),
+                            "reviewed": True,
+                            "approved": True,
+                            "reviewed_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    ),
+                    is_reviewed=1,
+                    reviewer="Manual Entry",
+                )
+                db.add(db_result)
+
+            db.commit()
+            db.refresh(db_result)
+
+            # Notify Flask app
+            try:
+                async with httpx.AsyncClient() as client:
+                    await client.post(
+                        FLASK_APP_URL,
+                        json={
+                            "result_id": db_result.id,
+                            "timestamp": db_result.timestamp.isoformat(),
+                            "electorate": db_result.electorate,
+                            "booth_name": db_result.booth_name,
+                            "action": "manual_entry",
+                        },
+                    )
+            except Exception as notify_err:
+                logger.error(f"Failed to notify Flask app: {notify_err}")
+
+            return {
+                "status": "success",
+                "result_id": db_result.id,
+                "message": "Result saved successfully",
+            }
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing manual entry: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/results/{result_id}/update-booth-name")
+async def update_result_booth_name(result_id: int, request: Request):
+    """
+    Update the booth name for a specific result
+    """
+    try:
+        data = await request.json()
+        booth_name = data.get("booth_name")
+
+        if not booth_name:
+            raise HTTPException(status_code=400, detail="Booth name is required")
+
+        db = SessionLocal()
+        try:
+            result = db.query(Result).filter_by(id=result_id).first()
+            if not result:
+                raise HTTPException(
+                    status_code=404, detail=f"Result with ID {result_id} not found"
+                )
+
+            result.booth_name = booth_name
+            db.commit()
+
+            return {
+                "status": "success",
+                "message": "Booth name updated successfully",
+                "result": {
+                    "id": result.id,
+                    "booth_name": result.booth_name,
+                },
+            }
+        finally:
+            db.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating booth name for result {result_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

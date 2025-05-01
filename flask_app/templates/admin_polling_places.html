@@ -9,7 +9,7 @@
             <div class="col-md-12">
                 <div class="card">
                     <div class="card-header">
-                        <h4 class="mb-0">Admin Polling Places for Division: {{ division }}</h4>
+                        <h4 class="mb-0">Admin Polling Places for Division: {{ g.selected_division }}</h4>
                     </div>
                     <div class="card-body">
                         {% if messages %}
@@ -19,19 +19,11 @@
                         {% endif %}
                         
                         <div class="row mb-4">
-                            <div class="col-md-6">
-                                <form id="division-form" method="get" action="/admin/polling-places">
-                                    <div class="mb-3">
-                                        <label for="division" class="form-label">Select Division</label>
-                                        <select class="form-select" id="division" name="division" onchange="this.form.submit()">
-                                            <option value="">Select Division</option>
-                                            <!-- Electorates will be loaded via JavaScript -->
-                                        </select>
-                                    </div>
-                                </form>
-                            </div>
-                            <div class="col-md-6 text-end">
-                                <a href="/admin/tcp-candidates/{{ division }}" class="btn btn-primary me-2">
+                            <div class="col-md-12 text-end">
+                                <a href="/manual-entry" class="btn btn-success me-2">
+                                    Manual Entry
+                                </a>
+                                <a href="/admin/tcp-candidates/{{ g.selected_division }}" class="btn btn-primary me-2">
                                     TCP Candidates
                                 </a>
                                 <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#resetResultsModal">
@@ -40,35 +32,13 @@
                             </div>
                         </div>
                         
-                        <!-- Unreviewed Results Section -->
-                        {% if unreviewed_results %}
-                        <div class="mb-4">
-                            <h5>Results Pending Review</h5>
-                            <div class="alert alert-warning">
-                                There are {{ unreviewed_results|length }} results waiting for review
-                            </div>
-                            <div class="list-group">
-                                {% for result in unreviewed_results %}
-                                <a href="/admin/review-result/{{ result.id }}" class="list-group-item list-group-item-action">
-                                    <div class="d-flex w-100 justify-content-between">
-                                        <h5 class="mb-1">{{ result.booth_name }}</h5>
-                                        <small>{{ result.timestamp }}</small>
-                                    </div>
-                                    <p class="mb-1">Electorate: {{ result.electorate }}</p>
-                                </a>
-                                {% endfor %}
-                            </div>
-                        </div>
-                        {% endif %}
-                        
                         <!-- Polling Places Table -->
-                        <h5>Polling Places in {{ division }}</h5>
+                        <h5>Polling Places in {{ g.selected_division }}</h5>
                         <div class="table-responsive">
                             <table class="table table-striped">
                                 <thead>
                                     <tr>
                                         <th>Polling Place Name</th>
-                                        <th>State</th>
                                         <th id="tcp-candidate-1-header">TCP Candidate 1 %</th>
                                         <th id="tcp-candidate-2-header">TCP Candidate 2 %</th>
                                         <th>Swing</th>
@@ -77,69 +47,6 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {% for place in polling_places %}
-                                    <tr>
-                                        <td>{{ place.polling_place_name }}</td>
-                                        <td>{{ place.state }}</td>
-                                        <td>
-                                            {% if place.tcp_candidate_1_percentage is defined and place.tcp_candidate_1_percentage is not none %}
-                                                {{ place.tcp_candidate_1_percentage|round(2) }}%
-                                            {% elif place.liberal_national_percentage is defined and place.liberal_national_percentage is not none %}
-                                                {{ place.liberal_national_percentage|round(2) }}%
-                                            {% else %}
-                                                N/A
-                                            {% endif %}
-                                        </td>
-                                        <td>
-                                            {% if place.tcp_candidate_2_percentage is defined and place.tcp_candidate_2_percentage is not none %}
-                                                {{ place.tcp_candidate_2_percentage|round(2) }}%
-                                            {% elif place.labor_percentage is defined and place.labor_percentage is not none %}
-                                                {{ place.labor_percentage|round(2) }}%
-                                            {% else %}
-                                                N/A
-                                            {% endif %}
-                                        </td>
-                                        <td>
-                                            {% if place.tcp_swing is defined and place.tcp_swing is not none %}
-                                                {% if place.tcp_swing > 0 %}
-                                                <span class="text-danger">+{{ place.tcp_swing|round(2) }}% to {{ place.tcp_candidate_1_name or 'Candidate 1' }}</span>
-                                                {% elif place.tcp_swing < 0 %}
-                                                <span class="text-primary">{{ place.tcp_swing|round(2) }}% to {{ place.tcp_candidate_2_name or 'Candidate 2' }}</span>
-                                                {% else %}
-                                                <span class="text-secondary">No swing</span>
-                                                {% endif %}
-                                            {% elif place.swing is defined and place.swing is not none %}
-                                                {% if place.swing > 0 %}
-                                                <span class="text-danger">+{{ place.swing|round(2) }}% to ALP</span>
-                                                {% elif place.swing < 0 %}
-                                                <span class="text-primary">{{ place.swing|round(2) }}% to LNP</span>
-                                                {% else %}
-                                                <span class="text-secondary">No swing</span>
-                                                {% endif %}
-                                            {% else %}
-                                                <span class="text-secondary">N/A</span>
-                                            {% endif %}
-                                        </td>
-                                        <td>
-                                            {% set has_results = false %}
-                                            {% for result in current_results %}
-                                                {% if result.booth_name and place.polling_place_name.lower() in result.booth_name.lower() or result.booth_name.lower() in place.polling_place_name.lower() %}
-                                                    {% set has_results = true %}
-                                                    <a href="/results/{{ result.id }}" class="btn btn-sm btn-primary">View</a>
-                                                {% endif %}
-                                            {% endfor %}
-                                            {% if not has_results %}
-                                            <span class="badge bg-secondary">No results</span>
-                                            {% endif %}
-                                        </td>
-                                        <td>
-                                            <button type="button" class="btn btn-sm btn-outline-danger" 
-                                                onclick="resetBoothResults('{{ division }}', '{{ place.polling_place_name }}')">
-                                                Reset
-                                            </button>
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
                                 </tbody>
                             </table>
                         </div>
@@ -163,7 +70,7 @@
                             <div class="form-check">
                                 <input class="form-check-input" type="radio" name="reset_option" id="resetDivision" value="division" checked>
                                 <label class="form-check-label" for="resetDivision">
-                                    Reset all results for {{ division }}
+                                    Reset all results for {{ g.selected_division }}
                                 </label>
                             </div>
                             <div class="form-check">
@@ -173,7 +80,7 @@
                                 </label>
                             </div>
                         </div>
-                        <input type="hidden" id="resetDivisionValue" value="{{ division }}">
+                        <input type="hidden" id="resetDivisionValue" value="{{ g.selected_division }}">
                         <input type="hidden" id="resetAllResults" value="false">
                         <div class="text-danger mb-3">
                             Warning: This action cannot be undone!
@@ -192,42 +99,76 @@
 
 {% block extra_js %}
     <script>
-        // Function to reset results for a specific booth
-        function resetBoothResults(division, boothName) {
-            if (confirm(`Are you sure you want to reset results for ${boothName}?`)) {
-                // Direct API call to FastAPI
-                fetch('/api/admin/reset-results', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        division: division,
-                        booth_name: boothName,
-                        all_results: false
-                    })
-                })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Network response was not ok');
-                    }
-                    return response.json();
-                })
+        // Function to load TCP candidates and update headers
+        function loadTCPCandidates() {
+            const division = '{{ g.selected_division }}';
+            fetch(`/api/tcp-candidates/division/${encodeURIComponent(division)}`)
+                .then(response => response.json())
                 .then(data => {
-                    if (data.status === 'success') {
-                        alert(`Results for ${boothName} have been reset`);
-                        // Reload the page to show updated results
-                        window.location.reload();
-                    } else {
-                        alert(`Error resetting results: ${data.message || 'Unknown error'}`);
+                    console.log("Received TCP candidates:", data);
+                    if (data.status === 'success' && data.candidates && data.candidates.length === 2) {
+                        // Update the headers to show the candidate names
+                        document.getElementById('tcp-candidate-1-header').textContent = 
+                            `${data.candidates[0].candidate_name} %`;
+                        document.getElementById('tcp-candidate-2-header').textContent = 
+                            `${data.candidates[1].candidate_name} %`;
                     }
                 })
                 .catch(error => {
-                    console.error('Error:', error);
-                    alert(`Error resetting results: ${error.message}`);
+                    console.error('Error loading TCP candidates:', error);
                 });
-            }
         }
+
+        // Function to load polling places
+        function loadPollingPlaces() {
+            const division = '{{ g.selected_division }}';
+            fetch(`/api/booth-results?division=${encodeURIComponent(division)}`)
+                .then(response => response.json())
+                .then(data => {
+                    console.log("Received booth results:", data);
+                    if (data.status === 'success' && data.booth_results) {
+                        // Update the TCP candidate headers
+                        document.getElementById('tcp-candidate-1-header').textContent = 
+                            `${data.tcp_candidate_1_name} %`;
+                        document.getElementById('tcp-candidate-2-header').textContent = 
+                            `${data.tcp_candidate_2_name} %`;
+
+                        const tableBody = document.querySelector('tbody');
+                        tableBody.innerHTML = ''; // Clear any existing rows
+                        
+                        // Create rows for each polling place
+                        data.booth_results.forEach(place => {
+                            const row = document.createElement('tr');
+                            const pollingPlaceName = place.polling_place_name.toUpperCase();
+                            const result = data.results_map[pollingPlaceName];
+                            const hasResults = result && result.is_reviewed === 1;
+                            
+                            row.innerHTML = `
+                                <td>${place.polling_place_name}</td>
+                                <td>${hasResults && result.tcp_candidate_1_percentage !== null ? result.tcp_candidate_1_percentage.toFixed(2) + '%' : '-'}</td>
+                                <td>${hasResults && result.tcp_candidate_2_percentage !== null ? result.tcp_candidate_2_percentage.toFixed(2) + '%' : '-'}</td>
+                                <td>${hasResults && result.swing !== null ? result.swing.toFixed(2) + '%' : '-'}</td>
+                                <td>
+                                    ${hasResults ? `
+                                        <button class="btn btn-primary btn-sm" onclick="viewResults(${result.result_id})">View Results</button>
+                                        <button class="btn btn-danger btn-sm" onclick="resetResults('${place.polling_place_name}')">Reset</button>
+                                    ` : '-'}
+                                </td>
+                            `;
+                            tableBody.appendChild(row);
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading polling places:', error);
+                });
+        }
+
+        // Load TCP candidates first, then polling places
+        document.addEventListener('DOMContentLoaded', function() {
+            loadTCPCandidates();
+            loadPollingPlaces();
+        });
 
         // Function to submit the reset form from the modal
         function submitResetForm() {
@@ -236,7 +177,6 @@
                 const division = document.getElementById('resetDivisionValue').value;
                 const allResults = resetOption === 'all';
                 
-                // Direct API call to FastAPI
                 fetch('/api/admin/reset-results', {
                     method: 'POST',
                     headers: {
@@ -260,10 +200,8 @@
                         } else {
                             alert(`Results for ${division} have been reset`);
                         }
-                        // Close the modal
                         const modal = bootstrap.Modal.getInstance(document.getElementById('resetResultsModal'));
                         modal.hide();
-                        // Reload the page to show updated results
                         window.location.reload();
                     } else {
                         alert(`Error resetting results: ${data.message || 'Unknown error'}`);
@@ -276,393 +214,39 @@
             }
         }
 
-        // Load electorates and current results data when the page loads
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log("DOMContentLoaded event fired");
-            loadElectorates();
-            loadCurrentResults();
-            
-            // Check if the table is empty and load polling places directly
-            const tableBody = document.querySelector('tbody');
-            console.log("Table body found:", tableBody);
-            console.log("Table body children length:", tableBody ? tableBody.children.length : "N/A");
-            
-            if (tableBody && tableBody.children.length === 0) {
-                console.log("Table is empty, loading polling places directly");
-                loadPollingPlaces();
-            } else {
-                console.log("Table is not empty, skipping direct polling places load");
-            }
-        });
-        
-        // Function to load polling places directly from the FastAPI
-        function loadPollingPlaces() {
-            // Get division from URL parameter or dropdown
-            const urlParams = new URLSearchParams(window.location.search);
-            const division = urlParams.get('division') || document.querySelector('#division').value;
-            if (!division) return;
-            
-            console.log("Loading polling places for division:", division);
-            
-            fetch(`/api/admin/polling-places/${encodeURIComponent(division)}`, {
-                method: 'GET',
-                headers: {
-                    'Accept': 'application/json',
-                }
-            })
-            .then(response => {
-                console.log("Fetch response status:", response.status);
-                if (!response.ok) {
-                    throw new Error(`HTTP error! Status: ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                console.log("Received booth results:", data);
-                console.log("Data type:", typeof data, "Data structure:", Object.keys(data));
-                if (data.status === 'success' && data.booth_results) {
-                    const tableBody = document.querySelector('tbody');
-                    tableBody.innerHTML = ''; // Clear any existing rows
-                    
-                    // Create rows for each polling place
-                    data.booth_results.forEach(place => {
-                        const row = document.createElement('tr');
-                        
-                        // Polling Place Name
-                        const nameCell = document.createElement('td');
-                        nameCell.textContent = place.polling_place_name;
-                        row.appendChild(nameCell);
-                        
-                        // State
-                        const stateCell = document.createElement('td');
-                        stateCell.textContent = place.state;
-                        row.appendChild(stateCell);
-                        
-                        // TCP Candidate 1 %
-                        const tcp1Cell = document.createElement('td');
-                        if (place.tcp_candidate_1_percentage !== undefined) {
-                            tcp1Cell.textContent = `${place.tcp_candidate_1_percentage.toFixed(2)}%`;
-                        } else {
-                            tcp1Cell.textContent = `${place.liberal_national_percentage.toFixed(2)}%`;
-                        }
-                        row.appendChild(tcp1Cell);
-                        
-                        // TCP Candidate 2 %
-                        const tcp2Cell = document.createElement('td');
-                        if (place.tcp_candidate_2_percentage !== undefined) {
-                            tcp2Cell.textContent = `${place.tcp_candidate_2_percentage.toFixed(2)}%`;
-                        } else {
-                            tcp2Cell.textContent = `${place.labor_percentage.toFixed(2)}%`;
-                        }
-                        row.appendChild(tcp2Cell);
-                        
-                        // Swing
-                        const swingCell = document.createElement('td');
-                        if (place.tcp_swing !== undefined) {
-                            if (place.tcp_swing > 0) {
-                                const span = document.createElement('span');
-                                span.className = 'text-danger';
-                                span.textContent = `+${place.tcp_swing.toFixed(2)}% to ${place.tcp_candidate_1_name || 'Candidate 1'}`;
-                                swingCell.appendChild(span);
-                            } else if (place.tcp_swing < 0) {
-                                const span = document.createElement('span');
-                                span.className = 'text-primary';
-                                span.textContent = `${place.tcp_swing.toFixed(2)}% to ${place.tcp_candidate_2_name || 'Candidate 2'}`;
-                                swingCell.appendChild(span);
-                            } else {
-                                swingCell.textContent = 'No swing';
-                            }
-                        } else {
-                            if (place.swing > 0) {
-                                const span = document.createElement('span');
-                                span.className = 'text-danger';
-                                span.textContent = `+${place.swing.toFixed(2)}% to ALP`;
-                                swingCell.appendChild(span);
-                            } else if (place.swing < 0) {
-                                const span = document.createElement('span');
-                                span.className = 'text-primary';
-                                span.textContent = `${place.swing.toFixed(2)}% to LNP`;
-                                swingCell.appendChild(span);
-                            } else {
-                                swingCell.textContent = 'No swing';
-                            }
-                        }
-                        row.appendChild(swingCell);
-                        
-                        // Current Results (empty for now, will be updated by loadCurrentResults)
-                        const resultCell = document.createElement('td');
-                        const badge = document.createElement('span');
-                        badge.className = 'badge bg-secondary';
-                        badge.textContent = 'No results';
-                        resultCell.appendChild(badge);
-                        row.appendChild(resultCell);
-                        
-                        // Actions
-                        const actionsCell = document.createElement('td');
-                        const resetButton = document.createElement('button');
-                        resetButton.type = 'button';
-                        resetButton.className = 'btn btn-sm btn-outline-danger';
-                        resetButton.textContent = 'Reset';
-                        resetButton.onclick = function() {
-                            resetBoothResults(division, place.polling_place_name);
-                        };
-                        actionsCell.appendChild(resetButton);
-                        row.appendChild(actionsCell);
-                        
-                        tableBody.appendChild(row);
-                    });
-                    
-                    // Now load current results to update the "Current Results" column
-                    loadCurrentResults();
-                }
-            })
-            .catch(error => {
-                console.error('Error loading booth results:', error);
-            });
-        }
-        
-        // Function to load electorates directly from FastAPI
-        function loadElectorates() {
-            fetch('/api/electorates', {
-                method: 'GET',
-                headers: {
-                    'Accept': 'application/json',
-                }
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
-                }
-                return response.json();
-            })
-            .then(data => {
-                if (data.status === 'success') {
-                    updateElectoratesDropdown(data.electorates);
-                } else {
-                    console.error('Error loading electorates:', data.message || 'Unknown error');
-                }
-            })
-            .catch(error => {
-                console.error('Error loading electorates:', error);
-            });
-        }
-        
-        // Function to update the electorates dropdown
-        function updateElectoratesDropdown(electorates) {
-            const dropdown = document.getElementById('division');
-            const currentValue = '{{ division }}';
-            
-            // Keep the first option
-            const firstOption = dropdown.options[0];
-            dropdown.innerHTML = '';
-            dropdown.appendChild(firstOption);
-            
-            // Add electorates from API
-            electorates.forEach(electorate => {
-                const option = document.createElement('option');
-                option.value = electorate;
-                option.textContent = electorate;
-                if (electorate === currentValue) {
-                    option.selected = true;
-                }
-                dropdown.appendChild(option);
-            });
+        // Function to view results for a specific booth
+        function viewResults(resultId) {
+            window.location.href = `/results/${resultId}`;
         }
 
-        // Function to load current results from FastAPI
-        function loadCurrentResults() {
-            const division = document.querySelector('#division').value;
-            
-            // Direct API call to FastAPI to get results
-            fetch(`/api/results?electorate=${encodeURIComponent(division)}`, {
-                method: 'GET',
-                headers: {
-                    'Accept': 'application/json',
-                }
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
-                }
-                return response.json();
-            })
-            .then(data => {
-                if (data.status === 'success') {
-                    updateResultsTable(data.results);
-                }
-            })
-            .catch(error => {
-                console.error('Error loading results:', error);
-            });
-        }
-
-        // Function to update the results table with data from FastAPI
-        function updateResultsTable(results) {
-            // Get the table body
-            const tableBody = document.querySelector('tbody');
-            const division = document.querySelector('#division').value;
-            
-            // Clear existing rows if no polling places are displayed
-            if (tableBody.children.length === 0) {
-                // Fetch polling places data directly from FastAPI
-                fetch(`/api/admin/polling-places/${encodeURIComponent(division)}`, {
-                    method: 'GET',
+        // Function to reset results for a specific booth
+        function resetResults(boothName) {
+            if (confirm(`Are you sure you want to reset results for ${boothName}?`)) {
+                fetch('/api/admin/reset-results', {
+                    method: 'POST',
                     headers: {
-                        'Accept': 'application/json',
-                    }
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        division: '{{ g.selected_division }}',
+                        booth_name: boothName
+                    })
                 })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Network response was not ok');
-                    }
-                    return response.json();
-                })
+                .then(response => response.json())
                 .then(data => {
-                    if (data.status === 'success' && data.booth_results) {
-                        // Create rows for each polling place
-                        data.booth_results.forEach(place => {
-                            const row = document.createElement('tr');
-                            
-                            // Polling Place Name
-                            const nameCell = document.createElement('td');
-                            nameCell.textContent = place.polling_place_name;
-                            row.appendChild(nameCell);
-                            
-                            // State
-                            const stateCell = document.createElement('td');
-                            stateCell.textContent = place.state;
-                            row.appendChild(stateCell);
-                            
-                            // TCP Candidate 1 %
-                            const tcp1Cell = document.createElement('td');
-                            if (place.tcp_candidate_1_percentage !== undefined) {
-                                tcp1Cell.textContent = `${place.tcp_candidate_1_percentage.toFixed(2)}%`;
-                                // Update the header to show the candidate name
-                                document.getElementById('tcp-candidate-1-header').textContent = 
-                                    `${place.tcp_candidate_1_name || 'TCP Candidate 1'} %`;
-                            } else {
-                                tcp1Cell.textContent = `${place.liberal_national_percentage.toFixed(2)}%`;
-                            }
-                            row.appendChild(tcp1Cell);
-                            
-                            // TCP Candidate 2 %
-                            const tcp2Cell = document.createElement('td');
-                            if (place.tcp_candidate_2_percentage !== undefined) {
-                                tcp2Cell.textContent = `${place.tcp_candidate_2_percentage.toFixed(2)}%`;
-                                // Update the header to show the candidate name
-                                document.getElementById('tcp-candidate-2-header').textContent = 
-                                    `${place.tcp_candidate_2_name || 'TCP Candidate 2'} %`;
-                            } else {
-                                tcp2Cell.textContent = `${place.labor_percentage.toFixed(2)}%`;
-                            }
-                            row.appendChild(tcp2Cell);
-                            
-                            // Swing
-                            const swingCell = document.createElement('td');
-                            if (place.tcp_swing !== undefined) {
-                                if (place.tcp_swing > 0) {
-                                    const span = document.createElement('span');
-                                    span.className = 'text-danger';
-                                    span.textContent = `+${place.tcp_swing.toFixed(2)}% to ${place.tcp_candidate_1_name || 'Candidate 1'}`;
-                                    swingCell.appendChild(span);
-                                } else if (place.tcp_swing < 0) {
-                                    const span = document.createElement('span');
-                                    span.className = 'text-primary';
-                                    span.textContent = `${place.tcp_swing.toFixed(2)}% to ${place.tcp_candidate_2_name || 'Candidate 2'}`;
-                                    swingCell.appendChild(span);
-                                } else {
-                                    swingCell.textContent = 'No swing';
-                                }
-                            } else {
-                                if (place.swing > 0) {
-                                    const span = document.createElement('span');
-                                    span.className = 'text-danger';
-                                    span.textContent = `+${place.swing.toFixed(2)}% to ALP`;
-                                    swingCell.appendChild(span);
-                                } else if (place.swing < 0) {
-                                    const span = document.createElement('span');
-                                    span.className = 'text-primary';
-                                    span.textContent = `${place.swing.toFixed(2)}% to LNP`;
-                                    swingCell.appendChild(span);
-                                } else {
-                                    swingCell.textContent = 'No swing';
-                                }
-                            }
-                            row.appendChild(swingCell);
-                            
-                            // Current Results
-                            const resultCell = document.createElement('td');
-                            
-                            // Find matching result
-                            const matchingResult = results.find(r => 
-                                r.booth_name && (place.polling_place_name.toLowerCase().includes(r.booth_name.toLowerCase()) || 
-                                r.booth_name.toLowerCase().includes(place.polling_place_name.toLowerCase()))
-                            );
-                            
-                            if (matchingResult) {
-                                const viewLink = document.createElement('a');
-                                viewLink.href = `/results/${matchingResult.id}`;
-                                viewLink.className = 'btn btn-sm btn-primary';
-                                viewLink.textContent = 'View';
-                                resultCell.appendChild(viewLink);
-                            } else {
-                                const badge = document.createElement('span');
-                                badge.className = 'badge bg-secondary';
-                                badge.textContent = 'No results';
-                                resultCell.appendChild(badge);
-                            }
-                            row.appendChild(resultCell);
-                            
-                            // Actions
-                            const actionsCell = document.createElement('td');
-                            const resetButton = document.createElement('button');
-                            resetButton.type = 'button';
-                            resetButton.className = 'btn btn-sm btn-outline-danger';
-                            resetButton.textContent = 'Reset';
-                            resetButton.onclick = function() {
-                                resetBoothResults(division, place.polling_place_name);
-                            };
-                            actionsCell.appendChild(resetButton);
-                            row.appendChild(actionsCell);
-                            
-                            tableBody.appendChild(row);
-                        });
+                    if (data.status === 'success') {
+                        alert('Results have been reset');
+                        loadPollingPlaces(); // Refresh the table
+                    } else {
+                        alert(`Error: ${data.message || 'Unknown error'}`);
                     }
                 })
                 .catch(error => {
-                    console.error('Error loading booth results:', error);
-                });
-            } else {
-                // Update existing rows
-                const rows = tableBody.querySelectorAll('tr');
-                
-                rows.forEach(row => {
-                    const placeName = row.querySelector('td:first-child').textContent;
-                    const resultCell = row.querySelector('td:nth-child(6)');
-                    
-                    // Clear existing content
-                    resultCell.innerHTML = '';
-                    
-                    // Find matching result
-                    const matchingResult = results.find(r => 
-                        r.booth_name && (placeName.toLowerCase().includes(r.booth_name.toLowerCase()) || 
-                        r.booth_name.toLowerCase().includes(placeName.toLowerCase()))
-                    );
-                    
-                    if (matchingResult) {
-                        const viewLink = document.createElement('a');
-                        viewLink.href = `/results/${matchingResult.id}`;
-                        viewLink.className = 'btn btn-sm btn-primary';
-                        viewLink.textContent = 'View';
-                        resultCell.appendChild(viewLink);
-                    } else {
-                        const badge = document.createElement('span');
-                        badge.className = 'badge bg-secondary';
-                        badge.textContent = 'No results';
-                        resultCell.appendChild(badge);
-                    }
+                    console.error('Error:', error);
+                    alert('Error resetting results');
                 });
             }
         }
     </script>
 {% endblock %}
+

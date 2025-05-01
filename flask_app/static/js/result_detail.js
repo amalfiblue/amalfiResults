@@ -1,222 +1,342 @@
 // Load result data directly from FastAPI when the page loads
 document.addEventListener('DOMContentLoaded', function() {
-    const resultId = document.querySelector('li.breadcrumb-item.active').textContent.split('#')[1];
-    loadResultData(resultId);
+    // Get the result ID from the URL path
+    const pathParts = window.location.pathname.split('/');
+    const resultId = pathParts[pathParts.length - 1];
+    
+    if (resultId) {
+        // Create tables from existing data
+        const primaryVotes = {};
+        document.querySelectorAll('.primary-vote').forEach(input => {
+            primaryVotes[input.dataset.candidate] = parseInt(input.value) || 0;
+        });
+
+        // Find the primary votes section
+        const primaryVotesSection = Array.from(document.querySelectorAll('h5')).find(h5 => h5.textContent.includes('Primary Votes'))?.nextElementSibling;
+        if (primaryVotesSection) {
+            const primaryVotesTable = document.getElementById('primaryVotesTable');
+            if (primaryVotesTable) {
+                const newTable = createPrimaryVotesTable(primaryVotes);
+                primaryVotesTable.parentNode.replaceChild(newTable, primaryVotesTable);
+            } else {
+                // If table doesn't exist, create a new one
+                const tableContainer = document.createElement('div');
+                tableContainer.className = 'table-responsive mb-4';
+                tableContainer.appendChild(createPrimaryVotesTable(primaryVotes));
+                primaryVotesSection.appendChild(tableContainer);
+            }
+        }
+
+        const tcpVotes = {};
+        document.querySelectorAll('.tcp-vote').forEach(input => {
+            const candidate = input.dataset.candidate;
+            const tcpCandidate = input.dataset.tcpCandidate;
+            if (!tcpVotes[tcpCandidate]) {
+                tcpVotes[tcpCandidate] = {};
+            }
+            tcpVotes[tcpCandidate][candidate] = parseInt(input.value) || 0;
+        });
+
+        // Find the TCP votes section
+        const tcpVotesSection = Array.from(document.querySelectorAll('h5')).find(h5 => h5.textContent.includes('Two-Candidate Preferred'))?.nextElementSibling;
+        if (tcpVotesSection) {
+            const tcpVotesTable = document.getElementById('tcpVotesTable');
+            if (tcpVotesTable) {
+                const newTable = createTCPVotesTable(tcpVotes);
+                tcpVotesTable.parentNode.replaceChild(newTable, tcpVotesTable);
+            } else {
+                // If table doesn't exist, create a new one
+                const tableContainer = document.createElement('div');
+                tableContainer.className = 'table-responsive mb-4';
+                tableContainer.appendChild(createTCPVotesTable(tcpVotes));
+                tcpVotesSection.appendChild(tableContainer);
+            }
+        }
+
+        const totals = {};
+        document.querySelectorAll('.total-vote').forEach(input => {
+            totals[input.dataset.type] = parseInt(input.value) || 0;
+        });
+
+        // Find the totals section
+        const totalsSection = Array.from(document.querySelectorAll('h5')).find(h5 => h5.textContent.includes('Vote Totals'))?.nextElementSibling;
+        if (totalsSection) {
+            const totalsTable = document.getElementById('totalsTable');
+            if (totalsTable) {
+                const newTable = createVoteTotalsTable(totals);
+                totalsTable.parentNode.replaceChild(newTable, totalsTable);
+            } else {
+                // If table doesn't exist, create a new one
+                const tableContainer = document.createElement('div');
+                tableContainer.className = 'table-responsive';
+                tableContainer.appendChild(createVoteTotalsTable(totals));
+                totalsSection.appendChild(tableContainer);
+            }
+        }
+        
+        // Load polling places for the electorate
+        const electorateCell = Array.from(document.getElementsByTagName('td')).find(td => td.textContent === 'Electorate');
+        if (electorateCell) {
+            const electorate = electorateCell.nextElementSibling.textContent.trim();
+            if (electorate && electorate !== 'Unknown') {
+                fetch(`/api/polling-places/division/${electorate}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            const selector = document.getElementById('polling_place_selector');
+                            selector.innerHTML = '<option value="">Select a polling place...</option>';
+                            data.polling_places.forEach(place => {
+                                const option = document.createElement('option');
+                                option.value = place.polling_place_name;
+                                option.textContent = place.polling_place_name;
+                                selector.appendChild(option);
+                            });
+                        }
+                    })
+                    .catch(error => console.error('Error loading polling places:', error));
+            }
+        }
+    }
 });
+
+// Function to format numbers with commas
+function formatNumber(num) {
+    return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+// Function to create a table for primary votes
+function createPrimaryVotesTable(primaryVotes) {
+    const table = document.createElement('table');
+    table.className = 'table table-striped';
+    
+    const thead = document.createElement('thead');
+    thead.innerHTML = `
+        <tr>
+            <th>Candidate</th>
+            <th>Votes</th>
+            <th>Percentage</th>
+        </tr>
+    `;
+    
+    const tbody = document.createElement('tbody');
+    
+    // Calculate total votes
+    const totalVotes = Object.values(primaryVotes).reduce((sum, votes) => sum + votes, 0);
+    
+    // Create rows for each candidate
+    Object.entries(primaryVotes).forEach(([candidate, votes]) => {
+        const percentage = totalVotes > 0 ? ((votes / totalVotes) * 100).toFixed(2) : '0.00';
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${candidate}</td>
+            <td>${formatNumber(votes)}</td>
+            <td>${percentage}%</td>
+        `;
+        tbody.appendChild(row);
+    });
+    
+    table.appendChild(thead);
+    table.appendChild(tbody);
+    return table;
+}
+
+// Function to create a table for TCP votes
+function createTCPVotesTable(tcpVotes) {
+    const table = document.createElement('table');
+    table.className = 'table table-striped';
+    
+    const thead = document.createElement('thead');
+    thead.innerHTML = `
+        <tr>
+            <th>Candidate</th>
+            <th>Primary Votes</th>
+            <th>Distributions</th>
+        </tr>
+    `;
+    
+    const tbody = document.createElement('tbody');
+    
+    // Create rows for each candidate
+    Object.entries(tcpVotes).forEach(([candidate, data]) => {
+        const row = document.createElement('tr');
+        const distributions = Object.entries(data.distributions)
+            .map(([tcpCandidate, votes]) => `${tcpCandidate}: ${formatNumber(votes)} (${votes.percentage.toFixed(2)}%)`)
+            .join('<br>');
+        
+        row.innerHTML = `
+            <td>${candidate}</td>
+            <td>${formatNumber(data.primary_votes)}</td>
+            <td>${distributions}</td>
+        `;
+        tbody.appendChild(row);
+    });
+    
+    table.appendChild(thead);
+    table.appendChild(tbody);
+    return table;
+}
+
+// Function to create a table for vote totals
+function createVoteTotalsTable(totals) {
+    const tbody = document.getElementById('vote-totals-body');
+    tbody.innerHTML = '';
+    
+    Object.entries(totals).forEach(([category, count]) => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${category}</td>
+            <td>${formatNumber(count)}</td>
+        `;
+        tbody.appendChild(row);
+    });
+}
 
 // Function to load result data from FastAPI
 function loadResultData(resultId) {
+    console.log('Loading result data for ID:', resultId);
     fetch(`/api/results/${resultId}`, {
         method: 'GET',
         headers: {
             'Accept': 'application/json',
         }
     })
-    .then(response => {
-        if (!response.ok) {
-            throw new Error('Network response was not ok');
-        }
-        return response.json();
-    })
+    .then(response => response.json())
     .then(data => {
         if (data.status === 'success') {
-            updateResultDisplay(data.result);
+            const result = data.result;
+            const resultData = result.data;
+            
+            // Update booth name
+            document.getElementById('booth_name').value = result.booth_name || '';
+            
+            // Update primary votes
+            const primaryVotesTable = document.getElementById('primaryVotesTable');
+            if (resultData.primary_votes) {
+                primaryVotesTable.innerHTML = '';
+                primaryVotesTable.appendChild(createPrimaryVotesTable(resultData.primary_votes));
+            }
+            
+            // Update TCP votes
+            const tcpVotesTable = document.getElementById('tcpVotesTable');
+            if (resultData.two_candidate_preferred) {
+                tcpVotesTable.innerHTML = '';
+                tcpVotesTable.appendChild(createTCPVotesTable(resultData.two_candidate_preferred));
+            }
+            
+            // Update vote totals
+            if (resultData.totals) {
+                createVoteTotalsTable(resultData.totals);
+            }
         } else {
-            console.error('Error loading result data:', data.message || 'Unknown error');
+            console.error('Error loading result:', data.message);
         }
     })
     .catch(error => {
-        console.error('Error loading result data:', error);
+        console.error('Error loading result:', error);
     });
 }
 
-// Function to update the result display with data from FastAPI
-function updateResultDisplay(result) {
-    console.log('Updating result display with:', result);
-    
-    // Update metadata
-    document.querySelector('li.breadcrumb-item.active').textContent = `Result #${result.id}`;
-    
-    // Update metadata table
-    const metadataTable = document.querySelector('.col-md-6:first-child table tbody');
-    metadataTable.innerHTML = `
-        <tr>
-            <th>ID</th>
-            <td>${result.id}</td>
-        </tr>
-        <tr>
-            <th>Timestamp</th>
-            <td>${new Date(result.timestamp).toLocaleString()}</td>
-        </tr>
-        <tr>
-            <th>Electorate</th>
-            <td>${result.electorate || 'Unknown'}</td>
-        </tr>
-        <tr>
-            <th>Booth Name</th>
-            <td>${result.booth_name || 'Unknown'}</td>
-        </tr>
-    `;
-    
-    // Update image
-    const imageCol = document.querySelector('.col-md-6:nth-child(2)');
-    if (result.image_url) {
-        imageCol.innerHTML = `
-            <div class="text-center">
-                <h3>Original Image</h3>
-                <a href="${result.image_url}" target="_blank" class="btn btn-outline-primary">View Original Image</a>
-            </div>
-        `;
-    } else {
-        imageCol.innerHTML = `
-            <div class="alert alert-info">No image available for this result.</div>
-        `;
-    }
-    
-    console.log('Primary votes data:', result.data?.primary_votes);
-    console.log('TCP votes data:', result.data?.two_candidate_preferred);
-    console.log('Totals data:', result.data?.totals);
-    
-    // Update primary votes
-    const primaryVotesCard = document.getElementById('primary-votes-card');
-    console.log('Primary votes card element:', primaryVotesCard);
-    updatePrimaryVotes(result.data?.primary_votes || {});
-    
-    // Update TCP votes
-    const tcpVotesCard = document.getElementById('tcp-votes-card');
-    console.log('TCP votes card element:', tcpVotesCard);
-    updateTCPVotes(result.data?.two_candidate_preferred || {});
-    
-    // Update vote totals
-    const totalsTable = document.getElementById('vote-totals-body');
-    console.log('Totals table element:', totalsTable);
-    updateVoteTotals(result.data?.totals || {});
-    
-    // Update raw data
-    const rawDataPre = document.querySelector('#rawData pre');
-    if (rawDataPre) {
-        rawDataPre.textContent = JSON.stringify(result.data || {}, null, 2);
-    }
+// Function to update primary votes data
+function updatePrimaryVotes() {
+    const primaryVotes = {};
+    document.querySelectorAll('.primary-vote').forEach(input => {
+        primaryVotes[input.dataset.candidate] = parseInt(input.value) || 0;
+    });
+    document.getElementById('primaryVotesInput').value = JSON.stringify(primaryVotes);
+    validateVotes();
 }
 
-// Function to update primary votes table
-function updatePrimaryVotes(primaryVotes) {
-    const primaryVotesCard = document.getElementById('primary-votes-card');
-    
-    if (Object.keys(primaryVotes).length > 0) {
-        let tableHtml = `
-            <div class="table-responsive">
-                <table class="table table-striped">
-                    <thead>
-                        <tr>
-                            <th>Candidate</th>
-                            <th>Primary Votes</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-        `;
-        
-        for (const [candidate, votes] of Object.entries(primaryVotes)) {
-            tableHtml += `
-                <tr>
-                    <td>${candidate}</td>
-                    <td>${votes}</td>
-                </tr>
-            `;
+// Function to update TCP votes data
+function updateTCPVotes() {
+    const tcpVotes = {};
+    document.querySelectorAll('.tcp-vote').forEach(input => {
+        const candidate = input.dataset.candidate;
+        const tcpCandidate = input.dataset.tcpCandidate;
+        if (!tcpVotes[tcpCandidate]) {
+            tcpVotes[tcpCandidate] = {};
         }
-        
-        tableHtml += `
-                    </tbody>
-                </table>
-            </div>
-        `;
-        
-        primaryVotesCard.innerHTML = tableHtml;
-    } else {
-        primaryVotesCard.innerHTML = `
-            <div class="alert alert-info">No primary vote data available.</div>
-        `;
+        tcpVotes[tcpCandidate][candidate] = parseInt(input.value) || 0;
+    });
+    document.getElementById('tcpVotesInput').value = JSON.stringify(tcpVotes);
+    validateVotes();
+}
+
+// Function to update totals data
+function updateTotals() {
+    const totals = {};
+    document.querySelectorAll('.total-vote').forEach(input => {
+        totals[input.dataset.type] = parseInt(input.value) || 0;
+    });
+    document.getElementById('totalsInput').value = JSON.stringify(totals);
+    validateVotes();
+}
+
+// Function to validate votes
+function validateVotes() {
+    // Get all primary votes
+    let totalPrimaryVotes = 0;
+    document.querySelectorAll('.primary-vote').forEach(input => {
+        totalPrimaryVotes += parseInt(input.value) || 0;
+    });
+
+    // Get formal, informal, and total votes
+    const formalVotes = parseInt(document.querySelector('.total-vote[data-type="formal"]').value) || 0;
+    const informalVotes = parseInt(document.querySelector('.total-vote[data-type="informal"]').value) || 0;
+    const totalVotes = parseInt(document.querySelector('.total-vote[data-type="total"]').value) || 0;
+
+    // Validate totals
+    if (totalPrimaryVotes !== formalVotes) {
+        console.warn('Total primary votes does not equal formal votes');
+    }
+    if ((formalVotes + informalVotes) !== totalVotes) {
+        console.warn('Sum of formal and informal votes does not equal total votes');
     }
 }
 
-// Function to update TCP votes table
-function updateTCPVotes(tcpVotes) {
-    const tcpVotesCard = document.getElementById('tcp-votes-card');
-    console.log('TCP Votes data structure:', tcpVotes);
+// Function to submit the form
+function submitForm(action) {
+    // Update all the hidden inputs with current values
+    updatePrimaryVotes();
+    updateTCPVotes();
+    updateTotals();
     
-    if (tcpVotes && Object.keys(tcpVotes).length > 0) {
-        // Get all candidates that have TCP distributions
-        const allCandidates = new Set();
-        Object.values(tcpVotes).forEach(distributions => {
-            if (distributions) {
-                Object.keys(distributions).forEach(candidate => allCandidates.add(candidate));
-            }
-        });
-        
-        console.log('All candidates with TCP distributions:', Array.from(allCandidates));
-        
-        let tableHtml = `
-            <div class="table-responsive">
-                <table class="table table-striped">
-                    <thead>
-                        <tr>
-                            <th>Candidate</th>
-                            ${Object.keys(tcpVotes).map(tcpCandidate => 
-                                `<th>${tcpCandidate}</th>`).join('')}
-                        </tr>
-                    </thead>
-                    <tbody>
-        `;
-        
-        // Create a row for each candidate showing their distribution to TCP candidates
-        Array.from(allCandidates).forEach(candidate => {
-            const distributions = Object.keys(tcpVotes).map(tcpCandidate => {
-                const distribution = tcpVotes[tcpCandidate]?.[candidate];
-                console.log(`Distribution for ${candidate} to ${tcpCandidate}:`, distribution);
-                return distribution || '-';
-            });
-            
-            tableHtml += `
-                <tr>
-                    <td>${candidate}</td>
-                    ${distributions.map(votes => `<td>${votes}</td>`).join('')}
-                </tr>
-            `;
-        });
-        
-        tableHtml += `
-                    </tbody>
-                </table>
-            </div>
-        `;
-        
-        tcpVotesCard.innerHTML = tableHtml;
-    } else {
-        console.log('No TCP votes data available');
-        tcpVotesCard.innerHTML = `
-            <div class="alert alert-info">No two-candidate preferred data available.</div>
-        `;
-    }
+    // Set the action
+    document.getElementById('actionInput').value = action;
+    
+    // Submit the form
+    document.getElementById('reviewForm').submit();
 }
 
-// Function to update vote totals table
-function updateVoteTotals(totals) {
-    const totalsTable = document.getElementById('vote-totals-body');
+// Function to update booth name
+function updateBoothName() {
+    const boothName = document.getElementById('boothName').value;
+    const resultId = document.getElementById('resultId').value;
     
-    if (totalsTable) {
-        totalsTable.innerHTML = `
-            <tr>
-                <td>Formal Votes</td>
-                <td>${totals.formal || 'Unknown'}</td>
-            </tr>
-            <tr>
-                <td>Informal Votes</td>
-                <td>${totals.informal || 'Unknown'}</td>
-            </tr>
-            <tr>
-                <td>Total Votes</td>
-                <td>${totals.total || 'Unknown'}</td>
-            </tr>
-        `;
+    fetch(`/api/results/${resultId}/update-booth-name`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ booth_name: boothName })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert('Booth name updated successfully');
+        } else {
+            alert('Error updating booth name: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error updating booth name');
+    });
+}
+
+// Function to update booth name from polling place selector
+function updateBoothNameFromSelector(boothName) {
+    if (boothName) {
+        document.getElementById('booth_name').value = boothName;
+        updateBoothName();
     }
 } 

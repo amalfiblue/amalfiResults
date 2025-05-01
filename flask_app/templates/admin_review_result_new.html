@@ -59,15 +59,20 @@
                                 <input type="hidden" id="resultId" value="{{ result.id }}">
                                 <input type="hidden" id="electorate" value="{{ result.electorate }}">
                                 <div class="mb-4">
-                                    <label for="booth_name" class="form-label">Select AEC Polling Place</label>
-                                    <select id="booth_name" name="booth_name" class="form-select" required>
+                                    <label for="booth_name" class="form-label">Booth Name</label>
+                                    <input type="text" id="booth_name" name="booth_name" class="form-control mb-2" 
+                                           value="{{ result.booth_name }}" required>
+                                    
+                                    <label for="polling_place_selector" class="form-label">AEC Polling Place Helper</label>
+                                    <select id="polling_place_selector" class="form-select" onchange="updateBoothName(this.value)">
                                         <option value="">Select a polling place...</option>
                                     </select>
+                                    <small class="text-muted">Select a polling place to auto-fill the booth name, or manually enter the booth name above.</small>
                                 </div>
-                                <button type="button" class="btn btn-success me-2" onclick="reviewResult('approve')">
+                                <button type="button" class="btn btn-success me-2" onclick="submitForm('approve')">
                                     Approve Result
                                 </button>
-                                <button type="button" class="btn btn-danger" onclick="reviewResult('reject')">
+                                <button type="button" class="btn btn-danger" onclick="submitForm('reject')">
                                     Reject Result
                                 </button>
                             </div>
@@ -175,162 +180,114 @@
 
 {% block extra_js %}
 <script>
-    // Load result data directly from FastAPI when the page loads
-    document.addEventListener('DOMContentLoaded', function() {
-        loadResultData();
-    });
+    const FASTAPI_URL = "/api";
     
-    // Function to load result data from FastAPI
-    function loadResultData() {
-        const resultId = document.getElementById('resultId').value;
-        if (!resultId) {
-            console.error('No result ID found');
+    // Function to update booth name from selector
+    function updateBoothName(value) {
+        if (value) {
+            document.getElementById('booth_name').value = value;
+        }
+    }
+    
+    // Function to update primary votes data
+    function updatePrimaryVotes() {
+        const primaryVotes = {};
+        document.querySelectorAll('.primary-vote').forEach(input => {
+            primaryVotes[input.dataset.candidate] = parseInt(input.value) || 0;
+        });
+        document.getElementById('primaryVotesInput').value = JSON.stringify(primaryVotes);
+        validateVotes();
+    }
+
+    // Function to update TCP votes data
+    function updateTCPVotes() {
+        const tcpVotes = {};
+        document.querySelectorAll('.tcp-vote').forEach(input => {
+            const candidate = input.dataset.candidate;
+            const tcpCandidate = input.dataset.tcpCandidate;
+            if (!tcpVotes[tcpCandidate]) {
+                tcpVotes[tcpCandidate] = {};
+            }
+            tcpVotes[tcpCandidate][candidate] = parseInt(input.value) || 0;
+        });
+        document.getElementById('tcpVotesInput').value = JSON.stringify(tcpVotes);
+        validateVotes();
+    }
+
+    // Function to update totals data
+    function updateTotals() {
+        const totals = {};
+        document.querySelectorAll('.total-vote').forEach(input => {
+            totals[input.dataset.type] = parseInt(input.value) || 0;
+        });
+        document.getElementById('totalsInput').value = JSON.stringify(totals);
+        validateVotes();
+    }
+
+    // Function to validate votes
+    function validateVotes() {
+        // Get all primary votes
+        let totalPrimaryVotes = 0;
+        document.querySelectorAll('.primary-vote').forEach(input => {
+            totalPrimaryVotes += parseInt(input.value) || 0;
+        });
+
+        // Get formal, informal, and total votes
+        const formalVotes = parseInt(document.querySelector('.total-vote[data-type="formal"]').value) || 0;
+        const informalVotes = parseInt(document.querySelector('.total-vote[data-type="informal"]').value) || 0;
+        const totalVotes = parseInt(document.querySelector('.total-vote[data-type="total"]').value) || 0;
+
+        // Validate totals
+        if (totalPrimaryVotes !== formalVotes) {
+            console.warn('Total primary votes does not equal formal votes');
+        }
+        if ((formalVotes + informalVotes) !== totalVotes) {
+            console.warn('Sum of formal and informal votes does not equal total votes');
+        }
+    }
+
+    // Function to submit the form
+    async function submitForm(action) {
+        const confirmMessage = action === 'approve' 
+            ? 'Are you sure you want to approve this result?' 
+            : 'Are you sure you want to reject this result?';
+            
+        if (!confirm(confirmMessage)) {
             return;
         }
-        
-        fetch(`/api/admin/result/${resultId}`, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json',
-            }
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.status === 'success') {
-                updateResultDisplay(data.result);
-                loadPollingPlaces(data.result.electorate);
-            }
-        })
-        .catch(error => {
-            console.error('Error loading result data:', error);
-        });
-    }
-    
-    // Function to update the result display with data from FastAPI
-    function updateResultDisplay(result) {
-        // Update metadata
-        document.getElementById('result-id').textContent = result.id;
-        document.getElementById('result-timestamp').textContent = new Date(result.timestamp).toLocaleString();
-        document.getElementById('result-electorate').textContent = result.electorate || 'Unknown';
-        document.getElementById('result-booth-name').textContent = result.booth_name || 'Unknown';
-        
-        // Update image
-        if (result.image_url) {
-            document.getElementById('result-image').src = result.image_url;
-            document.getElementById('image-link').href = result.image_url;
-        }
-        
-        // Update primary votes
-        const primaryVotes = result.data?.primary_votes || {};
-        const primaryVotesTable = document.getElementById('primary-votes-table').getElementsByTagName('tbody')[0];
-        primaryVotesTable.innerHTML = '';
-        
-        // The API already sorts by ballot position, so we just need to preserve the order
-        Object.entries(primaryVotes).forEach(([candidate, votes]) => {
-            const row = primaryVotesTable.insertRow();
-            row.insertCell(0).textContent = candidate;
-            row.insertCell(1).textContent = votes;
-        });
-        
-        // Update TCP votes
-        const tcpVotes = result.data?.two_candidate_preferred || {};
-        const tcpVotesTable = document.getElementById('tcp-votes-table').getElementsByTagName('tbody')[0];
-        tcpVotesTable.innerHTML = '';
-        
-        if (Object.keys(tcpVotes).length > 0) {
-            document.getElementById('tcp-votes-container').classList.remove('d-none');
-            document.getElementById('no-tcp-votes').classList.add('d-none');
-            
-            // Get all unique candidates in the order they appear in the first TCP candidate's votes
-            const firstTcpCandidate = Object.keys(tcpVotes)[0];
-            const orderedCandidates = Object.keys(tcpVotes[firstTcpCandidate] || {});
-            
-            // Add rows for each candidate in order
-            orderedCandidates.forEach(candidate => {
-                const row = tcpVotesTable.insertRow();
-                row.insertCell(0).textContent = candidate;
-                row.insertCell(1).textContent = tcpVotes['STEGGALL']?.[candidate] || '-';
-                row.insertCell(2).textContent = tcpVotes['ROGERS']?.[candidate] || '-';
-            });
-        } else {
-            document.getElementById('tcp-votes-container').classList.add('d-none');
-            document.getElementById('no-tcp-votes').classList.remove('d-none');
-        }
-        
-        // Update vote totals
-        const totals = result.data?.totals || {};
-        document.getElementById('formal-votes').textContent = totals.formal || 'Unknown';
-        document.getElementById('informal-votes').textContent = totals.informal || 'Unknown';
-        document.getElementById('total-votes').textContent = totals.total || 'Unknown';
-    }
-    
-    // Function to load polling places into the dropdown
-    function loadPollingPlaces(division) {
-        fetch(`/api/polling-places/division/${division}`, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json',
-            }
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.status === 'success') {
-                const select = document.getElementById('booth_name');
-                select.innerHTML = '<option value="">Select a polling place...</option>';
-                
-                data.polling_places.forEach(place => {
-                    const option = document.createElement('option');
-                    option.value = place.polling_place_name;
-                    option.textContent = place.polling_place_name;
-                    select.appendChild(option);
-                });
-            }
-        })
-        .catch(error => {
-            console.error('Error loading polling places:', error);
-        });
-    }
-    
-    // Function to review a result
-    async function reviewResult(action) {
-        const resultId = document.getElementById('resultId').value;
+
+        // Update all data before submission
+        updatePrimaryVotes();
+        updateTCPVotes();
+        updateTotals();
+
+        const resultId = "{{ result.id }}";
         const boothName = document.getElementById('booth_name').value;
         
         if (!boothName) {
-            alert('Please select a polling place');
+            alert('Please enter a booth name');
             return;
         }
-        
-        if (!confirm(`Are you sure you want to ${action} this result?`)) {
-            return;
-        }
-        
+
         try {
-            const response = await fetch(`/api/admin/review-result/${resultId}`, {
+            const response = await fetch(`${FASTAPI_URL}/admin/review-result/${resultId}`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    action: action,
-                    booth_name: boothName
-                }),
+                    action,
+                    booth_name: boothName,
+                    primary_votes: JSON.parse(document.getElementById('primaryVotesInput').value),
+                    tcp_votes: JSON.parse(document.getElementById('tcpVotesInput').value),
+                    totals: JSON.parse(document.getElementById('totalsInput').value)
+                })
             });
             
             const data = await response.json();
             
             if (data.status === 'success') {
-                window.location.href = '/dashboard';
+                window.location.href = '/admin/panel';
             } else {
                 alert(`Error: ${data.message}`);
             }
@@ -339,5 +296,32 @@
             alert('An error occurred while processing your request');
         }
     }
+
+    // Initialize the form with current values
+    document.addEventListener('DOMContentLoaded', function() {
+        updatePrimaryVotes();
+        updateTCPVotes();
+        updateTotals();
+        
+        // Load polling places
+        fetch(`${FASTAPI_URL}/polling-places/division/{{ result.electorate }}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    const select = document.getElementById('polling_place_selector');
+                    select.innerHTML = '<option value="">Select a polling place...</option>';
+                    
+                    data.polling_places.forEach(place => {
+                        const option = document.createElement('option');
+                        option.value = place.polling_place_name;
+                        option.textContent = place.polling_place_name;
+                        select.appendChild(option);
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error loading polling places:', error);
+            });
+    });
 </script>
 {% endblock %}

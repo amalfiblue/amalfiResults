@@ -345,110 +345,99 @@
     }
     
     // Function to update the polling places table
-    function updatePollingPlacesTable(pollingPlaces) {
-        console.log("Updating polling places table with", pollingPlaces.length, "places");
+    function updatePollingPlacesTable(boothResults) {
+        const tableBody = document.querySelector('tbody');
+        tableBody.innerHTML = ''; // Clear any existing rows
         
-        // Get the card body that should contain the table
-        const cardBody = document.querySelector('.col-md-8 .card-body');
-        if (!cardBody) {
-            console.error("Could not find card body for polling places");
-            return;
-        }
-        
-        if (pollingPlaces && pollingPlaces.length > 0) {
-            // Hide the "no polling places" message
-            const noPollingPlacesMessage = cardBody.querySelector('.alert-info');
-            if (noPollingPlacesMessage) {
-                noPollingPlacesMessage.style.display = 'none';
-            }
+        // Create rows for each polling place
+        boothResults.forEach(place => {
+            const row = document.createElement('tr');
             
-            // Check if table already exists, if not create it
-            let tableContainer = cardBody.querySelector('.table-responsive');
-            if (!tableContainer) {
-                // Create table structure
-                tableContainer = document.createElement('div');
-                tableContainer.className = 'table-responsive';
-                
-                const table = document.createElement('table');
-                table.className = 'table table-striped';
-                
-                const thead = document.createElement('thead');
-                thead.innerHTML = `
-                    <tr>
-                        <th>Electorate</th>
-                        <th>Polling Place</th>
-                        <th>State</th>
-                        <th>Address</th>
-                        <th>Status</th>
-                        <th>Wheelchair Access</th>
-                        <th>Actions</th>
-                    </tr>
-                `;
-                
-                const tbody = document.createElement('tbody');
-                
-                table.appendChild(thead);
-                table.appendChild(tbody);
-                tableContainer.appendChild(table);
-                
-                // Replace the alert with the table
-                if (noPollingPlacesMessage) {
-                    cardBody.replaceChild(tableContainer, noPollingPlacesMessage);
-                } else {
-                    cardBody.appendChild(tableContainer);
-                }
-            }
+            // Polling Place Name
+            const nameCell = document.createElement('td');
+            nameCell.textContent = place.polling_place_name;
+            row.appendChild(nameCell);
             
-            // Now we can safely get the tbody
-            const tableBody = tableContainer.querySelector('tbody');
-            if (!tableBody) {
-                console.error("Could not find or create table body");
-                return;
-            }
+            // State
+            const stateCell = document.createElement('td');
+            stateCell.textContent = place.state;
+            row.appendChild(stateCell);
             
-            // Clear existing rows
-            tableBody.innerHTML = '';
-            
-            // Add rows for each polling place
-            pollingPlaces.forEach(place => {
-                const row = document.createElement('tr');
-                
-                row.innerHTML = `
-                    <td>${place.division_name || ''}</td>
-                    <td>${place.polling_place_name || ''}</td>
-                    <td>${place.state || ''}</td>
-                    <td>${place.address || ''}</td>
-                    <td>${place.status || ''}</td>
-                    <td>${place.wheelchair_access || ''}</td>
-                    <td>
-                        <a href="/admin/polling-places/${place.division_name}?place=${place.polling_place_id}" class="btn btn-sm btn-primary">
-                            View Details
-                        </a>
-                    </td>
-                `;
-                
-                tableBody.appendChild(row);
-            });
-        } else {
-            // Show "no polling places found" message
-            let noPollingPlacesMessage = cardBody.querySelector('.alert-info');
-            
-            // If the message doesn't exist, create it
-            if (!noPollingPlacesMessage) {
-                noPollingPlacesMessage = document.createElement('div');
-                noPollingPlacesMessage.className = 'alert alert-info';
-                noPollingPlacesMessage.textContent = 'No polling places found for the selected filters. Please try different criteria.';
-                cardBody.appendChild(noPollingPlacesMessage);
+            // TCP Candidate 1 %
+            const tcp1Cell = document.createElement('td');
+            if (place.tcp_candidate_1_percentage !== undefined) {
+                tcp1Cell.textContent = `${place.tcp_candidate_1_percentage.toFixed(2)}%`;
+                // Update the header to show the candidate name
+                document.getElementById('tcp-candidate-1-header').textContent = 
+                    `${place.tcp_candidate_1_name} %`;
             } else {
-                noPollingPlacesMessage.style.display = 'block';
+                tcp1Cell.textContent = 'N/A';
             }
+            row.appendChild(tcp1Cell);
             
-            // Remove table if it exists
-            const tableContainer = cardBody.querySelector('.table-responsive');
-            if (tableContainer) {
-                cardBody.removeChild(tableContainer);
+            // TCP Candidate 2 %
+            const tcp2Cell = document.createElement('td');
+            if (place.tcp_candidate_2_percentage !== undefined) {
+                tcp2Cell.textContent = `${place.tcp_candidate_2_percentage.toFixed(2)}%`;
+                // Update the header to show the candidate name
+                document.getElementById('tcp-candidate-2-header').textContent = 
+                    `${place.tcp_candidate_2_name} %`;
+            } else {
+                tcp2Cell.textContent = 'N/A';
             }
-        }
+            row.appendChild(tcp2Cell);
+            
+            // Swing
+            const swingCell = document.createElement('td');
+            if (place.swing !== undefined && place.swing !== null) {
+                if (place.swing > 0) {
+                    const span = document.createElement('span');
+                    span.className = 'text-danger';
+                    span.textContent = `+${place.swing.toFixed(2)}% to ${place.tcp_candidate_1_name}`;
+                    swingCell.appendChild(span);
+                } else if (place.swing < 0) {
+                    const span = document.createElement('span');
+                    span.className = 'text-primary';
+                    span.textContent = `${place.swing.toFixed(2)}% to ${place.tcp_candidate_2_name}`;
+                    swingCell.appendChild(span);
+                } else {
+                    swingCell.textContent = 'No swing';
+                }
+            } else {
+                swingCell.textContent = 'N/A';
+            }
+            row.appendChild(swingCell);
+            
+            // Current Results
+            const resultCell = document.createElement('td');
+            // Find matching result
+            const matchingResult = results.find(r => 
+                r.booth_name && (place.polling_place_name.toLowerCase().includes(r.booth_name.toLowerCase()) || 
+                r.booth_name.toLowerCase().includes(place.polling_place_name.toLowerCase()))
+            );
+            
+            if (matchingResult) {
+                const link = document.createElement('a');
+                link.href = `/results/${matchingResult.id}`;
+                link.className = 'btn btn-sm btn-primary';
+                link.textContent = 'View Results';
+                resultCell.appendChild(link);
+            } else {
+                resultCell.textContent = 'No results';
+            }
+            row.appendChild(resultCell);
+            
+            // Actions
+            const actionsCell = document.createElement('td');
+            const editLink = document.createElement('a');
+            editLink.href = `/admin/review-result?booth=${encodeURIComponent(place.polling_place_name)}&electorate=${encodeURIComponent(place.division_name)}`;
+            editLink.className = 'btn btn-sm btn-secondary';
+            editLink.textContent = 'Edit';
+            actionsCell.appendChild(editLink);
+            row.appendChild(actionsCell);
+            
+            tableBody.appendChild(row);
+        });
     }
 </script>
 {% endblock %}
