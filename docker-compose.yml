@@ -14,11 +14,9 @@ services:
       - DATABASE_URL=sqlite:////app/data/results.db
     volumes:
       - ./flask_app:/app
-      - ./wait-for-fastapi.sh:/wait-for-fastapi.sh
       - shared_data:/app/data
     depends_on:
       - results_fastapi_app
-    command: ["/wait-for-fastapi.sh", "python", "app.py"]
     networks:
       - amalfi_network
     expose:
