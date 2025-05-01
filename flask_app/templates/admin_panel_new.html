@@ -134,7 +134,14 @@
                                     </tr>
                                     <tr>
                                         <th>Booth Name</th>
-                                        <td id="result-booth-name"></td>
+                                        <td>
+                                            <div class="input-group">
+                                                <input type="text" class="form-control" id="result-booth-name-input">
+                                                <select class="form-select" id="polling-place-select">
+                                                    <option value="">Select Polling Place</option>
+                                                </select>
+                                            </div>
+                                        </td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -202,30 +209,24 @@
                                             </table>
                                         </div>
                                     </div>
-                                    <div id="no-tcp-votes" class="alert alert-info mb-4 d-none">No two-candidate preferred data available.</div>
+                                    <div id="no-tcp-votes" class="alert alert-info mb-4 d-none">No TCP vote data available.</div>
                                     
                                     <!-- Vote Totals Section -->
                                     <h5>Vote Totals</h5>
                                     <div class="table-responsive">
                                         <table class="table table-bordered">
-                                            <thead class="table-light">
-                                                <tr>
-                                                    <th>Category</th>
-                                                    <th>Count</th>
-                                                </tr>
-                                            </thead>
                                             <tbody>
                                                 <tr>
-                                                    <td>Formal Votes</td>
-                                                    <td id="formal-votes">Unknown</td>
+                                                    <th>Formal Votes</th>
+                                                    <td><input type="number" class="form-control" id="formal-votes-input"></td>
                                                 </tr>
                                                 <tr>
-                                                    <td>Informal Votes</td>
-                                                    <td id="informal-votes">Unknown</td>
+                                                    <th>Informal Votes</th>
+                                                    <td><input type="number" class="form-control" id="informal-votes-input"></td>
                                                 </tr>
                                                 <tr>
-                                                    <td>Total Votes</td>
-                                                    <td id="total-votes">Unknown</td>
+                                                    <th>Total Votes</th>
+                                                    <td><input type="number" class="form-control" id="total-votes-input"></td>
                                                 </tr>
                                             </tbody>
                                         </table>
@@ -237,8 +238,9 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                    <button type="button" class="btn btn-danger" onclick="rejectResult()">Reject Result</button>
-                    <button type="button" class="btn btn-success" onclick="approveResult()">Approve Result</button>
+                    <button type="button" class="btn btn-primary" onclick="saveChanges()">Save Changes</button>
+                    <button type="button" class="btn btn-success" onclick="approveResult()">Approve</button>
+                    <button type="button" class="btn btn-danger" onclick="rejectResult()">Reject</button>
                 </div>
             </div>
         </div>
@@ -333,6 +335,28 @@
         }
     }
     
+    // Function to load polling places for the current division
+    async function loadPollingPlaces(division) {
+        try {
+            const response = await fetch(`${API_URL}/admin/polling-places/${division}`);
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                const select = document.getElementById('polling-place-select');
+                select.innerHTML = '<option value="">Select Polling Place</option>';
+                
+                data.polling_places.forEach(place => {
+                    const option = document.createElement('option');
+                    option.value = place.name;
+                    option.textContent = place.name;
+                    select.appendChild(option);
+                });
+            }
+        } catch (error) {
+            console.error('Error loading polling places:', error);
+        }
+    }
+    
     // Function to open review modal
     async function openReviewModal(resultId) {
         try {
@@ -347,7 +371,10 @@
                 document.getElementById('result-id').textContent = result.id;
                 document.getElementById('result-timestamp').textContent = new Date(result.timestamp).toLocaleString();
                 document.getElementById('result-electorate').textContent = result.electorate || 'Unknown';
-                document.getElementById('result-booth-name').textContent = result.booth_name || 'Unknown';
+                document.getElementById('result-booth-name-input').value = result.booth_name || '';
+                
+                // Load polling places for the current division
+                await loadPollingPlaces(result.electorate);
                 
                 // Set image
                 const imageUrl = result.image_url;
@@ -367,7 +394,7 @@
                         const row = document.createElement('tr');
                         row.innerHTML = `
                             <td>${candidate}</td>
-                            <td>${votes}</td>
+                            <td><input type="number" class="form-control" value="${votes}" data-candidate="${candidate}"></td>
                         `;
                         primaryVotesTable.appendChild(row);
                     }
@@ -411,8 +438,8 @@
                         row.innerHTML = `<td>${candidate}</td>`;
                         
                         for (const tcpCandidate of Object.keys(tcpVotes)) {
-                            const votes = tcpVotes[tcpCandidate][candidate] || '-';
-                            row.innerHTML += `<td>${votes}</td>`;
+                            const votes = tcpVotes[tcpCandidate][candidate] || 0;
+                            row.innerHTML += `<td><input type="number" class="form-control" value="${votes}" data-candidate="${candidate}" data-tcp="${tcpCandidate}"></td>`;
                         }
                         
                         tcpVotesTable.appendChild(row);
@@ -424,9 +451,9 @@
                 
                 // Set vote totals
                 const totals = result.data?.totals || {};
-                document.getElementById('formal-votes').textContent = totals.formal || 'Unknown';
-                document.getElementById('informal-votes').textContent = totals.informal || 'Unknown';
-                document.getElementById('total-votes').textContent = totals.total || 'Unknown';
+                document.getElementById('formal-votes-input').value = totals.formal || '';
+                document.getElementById('informal-votes-input').value = totals.informal || '';
+                document.getElementById('total-votes-input').value = totals.total || '';
                 
                 // Show modal
                 const reviewModal = new bootstrap.Modal(document.getElementById('reviewResultModal'));
@@ -435,6 +462,63 @@
         } catch (error) {
             console.error('Error loading result:', error);
             alert('Error loading result. Please try again.');
+        }
+    }
+    
+    // Function to save changes
+    async function saveChanges() {
+        try {
+            const boothName = document.getElementById('result-booth-name-input').value;
+            const pollingPlace = document.getElementById('polling-place-select').value;
+            
+            // Collect primary votes
+            const primaryVotes = {};
+            document.querySelectorAll('#primary-votes-table input').forEach(input => {
+                const candidate = input.dataset.candidate;
+                primaryVotes[candidate] = parseInt(input.value) || 0;
+            });
+            
+            // Collect TCP votes
+            const tcpVotes = {};
+            document.querySelectorAll('#tcp-votes-table input').forEach(input => {
+                const candidate = input.dataset.candidate;
+                const tcpCandidate = input.dataset.tcp;
+                if (!tcpVotes[tcpCandidate]) {
+                    tcpVotes[tcpCandidate] = {};
+                }
+                tcpVotes[tcpCandidate][candidate] = parseInt(input.value) || 0;
+            });
+            
+            // Collect totals
+            const totals = {
+                formal: parseInt(document.getElementById('formal-votes-input').value) || 0,
+                informal: parseInt(document.getElementById('informal-votes-input').value) || 0,
+                total: parseInt(document.getElementById('total-votes-input').value) || 0
+            };
+            
+            const response = await fetch(`${API_URL}/admin/update-result/${currentResultId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    booth_name: boothName,
+                    polling_place: pollingPlace,
+                    primary_votes: primaryVotes,
+                    two_candidate_preferred: tcpVotes,
+                    totals: totals
+                })
+            });
+            
+            const data = await response.json();
+            if (data.status === 'success') {
+                alert('Changes saved successfully!');
+            } else {
+                throw new Error(data.message || 'Failed to save changes');
+            }
+        } catch (error) {
+            console.error('Error saving changes:', error);
+            alert('Error saving changes. Please try again.');
         }
     }
     
