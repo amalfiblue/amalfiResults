@@ -9,7 +9,7 @@ if parent_dir not in sys.path:
 
 import json
 import sqlite3
-import datetime
+from datetime import datetime, timedelta
 import base64
 from flask import (
     Flask,
@@ -104,7 +104,7 @@ def serve_upload(filename):
 
 
 db = SQLAlchemy(app)
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="gevent")
 
 login_manager = LoginManager(app)
 login_manager.login_view = "login"

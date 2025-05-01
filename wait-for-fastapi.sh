@@ -1,3 +1,4 @@
+#!/bin/bash
 set -e
 
 max_retries=30
