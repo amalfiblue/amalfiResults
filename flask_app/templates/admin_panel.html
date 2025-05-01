@@ -421,7 +421,7 @@
         async function loadUnreviewedResults(division) {
             showLoading();
             try {
-                const response = await fetch(`${API_URL}/admin/unreviewed-results/${division}`);
+                const response = await fetch(`${API_URL}/admin/unreviewed-results/division/${division}`);
                 const data = await response.json();
                 
                 if (data.status === 'success') {
