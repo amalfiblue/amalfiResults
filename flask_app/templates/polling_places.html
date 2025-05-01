@@ -14,13 +14,6 @@
                 <div class="card-body">
                     <form id="polling-place-filter-form">
                         <div class="mb-3">
-                            <label for="electorate" class="form-label">Electorate</label>
-                            <select class="form-select" id="electorate" name="electorate">
-                                <option value="">All Electorates</option>
-                                <!-- Electorates will be loaded via JavaScript -->
-                            </select>
-                        </div>
-                        <div class="mb-3">
                             <label for="booth" class="form-label">Polling Place</label>
                             <input type="text" class="form-control" id="booth" name="booth" value="{{ booth }}">
                         </div>
@@ -52,7 +45,6 @@
                             <table class="table table-striped">
                                 <thead>
                                     <tr>
-                                        <th>Electorate</th>
                                         <th>Polling Place</th>
                                         <th>State</th>
                                         <th>Address</th>
@@ -64,7 +56,6 @@
                                 <tbody>
                                     {% for place in polling_places %}
                                     <tr>
-                                        <td>{{ place.division_name }}</td>
                                         <td>{{ place.polling_place_name }}</td>
                                         <td>{{ place.state }}</td>
                                         <td>{{ place.address }}</td>
@@ -100,7 +91,6 @@
                                 <tr>
                                     <th>ID</th>
                                     <th>Timestamp</th>
-                                    <th>Electorate</th>
                                     <th>Booth</th>
                                     <th>Details</th>
                                 </tr>
@@ -110,7 +100,6 @@
                                 <tr>
                                     <td>{{ result.id }}</td>
                                     <td>{{ result.timestamp }}</td>
-                                    <td>{{ result.electorate }}</td>
                                     <td>{{ result.booth_name }}</td>
                                     <td>
                                         <a href="/results/{{ result.id }}" class="btn btn-sm btn-primary">
@@ -134,28 +123,24 @@
 <script>
     // Load polling places and current results directly from FastAPI when the page loads
     document.addEventListener('DOMContentLoaded', function() {
-        loadElectorates();
-        
-        const electorate = document.getElementById('electorate').value || '{{ electorate }}';
+        const division = '{{ g.selected_division }}';
         const boothFilter = document.getElementById('booth').value;
         
-        console.log("DOMContentLoaded - electorate:", electorate);
+        console.log("DOMContentLoaded - division:", division);
         
-        if (electorate) {
-            loadCurrentResults(electorate, boothFilter);
-            loadPollingPlaces(electorate);
+        if (division) {
+            loadCurrentResults(division, boothFilter);
+            loadPollingPlaces(division);
         }
         
         // Set up form submission handler
         const form = document.getElementById('polling-place-filter-form');
         form.addEventListener('submit', function(event) {
             event.preventDefault();
-            const electorate = document.getElementById('electorate').value;
             const booth = document.getElementById('booth').value;
             
             // Update URL parameters
             const params = new URLSearchParams();
-            if (electorate) params.append('electorate', electorate);
             if (booth) params.append('booth', booth);
             
             // Reload page with new parameters
@@ -163,60 +148,12 @@
         });
     });
     
-    // Function to load electorates from FastAPI
-    function loadElectorates() {
-        fetch('/api/electorates', {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json',
-            }
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.status === 'success') {
-                updateElectoratesDropdown(data.electorates);
-            } else {
-                console.error('Error loading electorates:', data.message || 'Unknown error');
-            }
-        })
-        .catch(error => {
-            console.error('Error loading electorates:', error);
-        });
-    }
-    
-    // Function to update the electorates dropdown
-    function updateElectoratesDropdown(electorates) {
-        const dropdown = document.getElementById('electorate');
-        const currentValue = '{{ electorate }}';
-        
-        // Keep the first option (All Electorates)
-        const firstOption = dropdown.options[0];
-        dropdown.innerHTML = '';
-        dropdown.appendChild(firstOption);
-        
-        // Add electorates from API
-        electorates.forEach(electorate => {
-            const option = document.createElement('option');
-            option.value = electorate;
-            option.textContent = electorate;
-            if (electorate === currentValue) {
-                option.selected = true;
-            }
-            dropdown.appendChild(option);
-        });
-    }
-    
     // Function to load current results from FastAPI
-    function loadCurrentResults(electorate, booth) {
+    function loadCurrentResults(division, booth) {
         // Build query parameters
         let params = new URLSearchParams();
-        if (electorate) {
-            params.append('electorate', electorate);
+        if (division) {
+            params.append('electorate', division);
         }
         if (booth) {
             params.append('booth', booth);
@@ -268,7 +205,6 @@
                                     <tr>
                                         <th>ID</th>
                                         <th>Timestamp</th>
-                                        <th>Electorate</th>
                                         <th>Booth</th>
                                         <th>Details</th>
                                     </tr>
@@ -296,7 +232,6 @@
                     row.innerHTML = `
                         <td>${result.id}</td>
                         <td>${timestamp.toLocaleString()}</td>
-                        <td>${result.electorate || ''}</td>
                         <td>${result.booth_name || ''}</td>
                         <td>
                             <a href="/results/${result.id}" class="btn btn-sm btn-primary">
@@ -315,11 +250,11 @@
     }
     
     // Function to load polling places from FastAPI
-    function loadPollingPlaces(electorate) {
-        if (!electorate) return;
-        console.log("Loading polling places for electorate:", electorate);
+    function loadPollingPlaces(division) {
+        if (!division) return;
+        console.log("Loading polling places for division:", division);
         
-        fetch(`/api/booth-results?electorate=${encodeURIComponent(electorate)}`, {
+        fetch(`/api/booth-results?electorate=${encodeURIComponent(division)}`, {
             method: 'GET',
             headers: {
                 'Accept': 'application/json',
@@ -346,96 +281,69 @@
     
     // Function to update the polling places table
     function updatePollingPlacesTable(boothResults) {
-        const tableBody = document.querySelector('tbody');
+        const cardBody = document.querySelector('.col-md-8 .card .card-body');
+        if (!cardBody) {
+            console.error('Could not find card body element');
+            return;
+        }
+
+        // Create or get the table container
+        let tableContainer = cardBody.querySelector('.table-responsive');
+        if (!tableContainer) {
+            tableContainer = document.createElement('div');
+            tableContainer.className = 'table-responsive';
+            cardBody.innerHTML = ''; // Clear any existing content
+            cardBody.appendChild(tableContainer);
+        }
+
+        // Create or get the table
+        let table = tableContainer.querySelector('table');
+        if (!table) {
+            table = document.createElement('table');
+            table.className = 'table table-striped';
+            table.innerHTML = `
+                <thead>
+                    <tr>
+                        <th>Polling Place</th>
+                        <th>State</th>
+                        <th>Address</th>
+                        <th>Status</th>
+                        <th>Wheelchair Access</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            `;
+            tableContainer.appendChild(table);
+        }
+
+        const tableBody = table.querySelector('tbody');
         tableBody.innerHTML = ''; // Clear any existing rows
-        
+
+        if (!boothResults || boothResults.length === 0) {
+            cardBody.innerHTML = `
+                <div class="alert alert-info">
+                    No polling places found for the selected filters. Please try different criteria.
+                </div>
+            `;
+            return;
+        }
+
         // Create rows for each polling place
         boothResults.forEach(place => {
             const row = document.createElement('tr');
-            
-            // Polling Place Name
-            const nameCell = document.createElement('td');
-            nameCell.textContent = place.polling_place_name;
-            row.appendChild(nameCell);
-            
-            // State
-            const stateCell = document.createElement('td');
-            stateCell.textContent = place.state;
-            row.appendChild(stateCell);
-            
-            // TCP Candidate 1 %
-            const tcp1Cell = document.createElement('td');
-            if (place.tcp_candidate_1_percentage !== undefined) {
-                tcp1Cell.textContent = `${place.tcp_candidate_1_percentage.toFixed(2)}%`;
-                // Update the header to show the candidate name
-                document.getElementById('tcp-candidate-1-header').textContent = 
-                    `${place.tcp_candidate_1_name} %`;
-            } else {
-                tcp1Cell.textContent = 'N/A';
-            }
-            row.appendChild(tcp1Cell);
-            
-            // TCP Candidate 2 %
-            const tcp2Cell = document.createElement('td');
-            if (place.tcp_candidate_2_percentage !== undefined) {
-                tcp2Cell.textContent = `${place.tcp_candidate_2_percentage.toFixed(2)}%`;
-                // Update the header to show the candidate name
-                document.getElementById('tcp-candidate-2-header').textContent = 
-                    `${place.tcp_candidate_2_name} %`;
-            } else {
-                tcp2Cell.textContent = 'N/A';
-            }
-            row.appendChild(tcp2Cell);
-            
-            // Swing
-            const swingCell = document.createElement('td');
-            if (place.swing !== undefined && place.swing !== null) {
-                if (place.swing > 0) {
-                    const span = document.createElement('span');
-                    span.className = 'text-danger';
-                    span.textContent = `+${place.swing.toFixed(2)}% to ${place.tcp_candidate_1_name}`;
-                    swingCell.appendChild(span);
-                } else if (place.swing < 0) {
-                    const span = document.createElement('span');
-                    span.className = 'text-primary';
-                    span.textContent = `${place.swing.toFixed(2)}% to ${place.tcp_candidate_2_name}`;
-                    swingCell.appendChild(span);
-                } else {
-                    swingCell.textContent = 'No swing';
-                }
-            } else {
-                swingCell.textContent = 'N/A';
-            }
-            row.appendChild(swingCell);
-            
-            // Current Results
-            const resultCell = document.createElement('td');
-            // Find matching result
-            const matchingResult = results.find(r => 
-                r.booth_name && (place.polling_place_name.toLowerCase().includes(r.booth_name.toLowerCase()) || 
-                r.booth_name.toLowerCase().includes(place.polling_place_name.toLowerCase()))
-            );
-            
-            if (matchingResult) {
-                const link = document.createElement('a');
-                link.href = `/results/${matchingResult.id}`;
-                link.className = 'btn btn-sm btn-primary';
-                link.textContent = 'View Results';
-                resultCell.appendChild(link);
-            } else {
-                resultCell.textContent = 'No results';
-            }
-            row.appendChild(resultCell);
-            
-            // Actions
-            const actionsCell = document.createElement('td');
-            const editLink = document.createElement('a');
-            editLink.href = `/admin/review-result?booth=${encodeURIComponent(place.polling_place_name)}&electorate=${encodeURIComponent(place.division_name)}`;
-            editLink.className = 'btn btn-sm btn-secondary';
-            editLink.textContent = 'Edit';
-            actionsCell.appendChild(editLink);
-            row.appendChild(actionsCell);
-            
+            row.innerHTML = `
+                <td>${place.polling_place_name || ''}</td>
+                <td>${place.state || ''}</td>
+                <td>${place.address || ''}</td>
+                <td>${place.status || ''}</td>
+                <td>${place.wheelchair_access || ''}</td>
+                <td>
+                    <a href="/admin/polling-places/${place.division_name}?place=${place.polling_place_id}" class="btn btn-sm btn-primary">
+                        View Details
+                    </a>
+                </td>
+            `;
             tableBody.appendChild(row);
         });
     }
