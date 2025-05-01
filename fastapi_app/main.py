@@ -568,7 +568,7 @@ async def receive_sms(request: Request):
                 # Create new result
                 db_result = Result(
                     image_url=image_url,
-                    electorate=tally_data.get("electorate"),
+                    electorate="Warringah",  # Hardcoded electorate
                     booth_name=result["booth_name"] or tally_data.get("booth_name"),
                     data=data_json,
                 )
@@ -588,7 +588,7 @@ async def receive_sms(request: Request):
                         json={
                             "result_id": db_result.id,
                             "timestamp": db_result.timestamp.isoformat(),
-                            "electorate": tally_data.get("electorate"),
+                            "electorate": "Warringah",  # Hardcoded electorate
                             "booth_name": result["booth_name"]
                             or tally_data.get("booth_name"),
                         },

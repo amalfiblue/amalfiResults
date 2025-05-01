@@ -53,7 +53,7 @@ from common.db_utils import get_sqlalchemy_url, ensure_database_exists
 
 load_dotenv()
 
-FASTAPI_URL = "http://localhost:8000"
+FASTAPI_URL = os.environ.get("FASTAPI_URL", "http://localhost:8000")
 
 
 def api_call(endpoint, method="get", data=None, params=None):
