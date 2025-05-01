@@ -973,7 +973,7 @@ def process_and_load_polling_places() -> bool:
 
 def process_and_load_booth_results() -> bool:
     """
-    Process and load polling places data for the 2025 federal election.
+    Process and load both 2022 booth results and 2025 polling places data.
 
     Returns:
         bool: True if all operations were successful, False otherwise
@@ -982,6 +982,97 @@ def process_and_load_booth_results() -> bool:
         ensure_data_dir()
         create_polling_places_table()
 
+        # First, download and process 2022 booth results
+        logger.info("Downloading 2022 booth results...")
+        download_success = download_booth_results_file()
+        if not download_success:
+            logger.error("Failed to download 2022 booth results")
+            return False
+
+        # Process and save 2022 booth results
+        logger.info("Processing 2022 booth results...")
+        booth_results_path = DATA_DIR / "HouseTppByPollingPlaceDownload-27966.csv"
+        if not booth_results_path.exists():
+            logger.error(f"2022 booth results file not found at {booth_results_path}")
+            return False
+
+        try:
+            with open(booth_results_path, "r", encoding="utf-8-sig") as f:
+                reader = csv.DictReader(f)
+                booth_results = []
+                for row in reader:
+                    try:
+                        # Extract relevant data from the 2022 results
+                        booth_result = {
+                            "division_name": row.get("DivisionNm", "").strip(),
+                            "polling_place_name": row.get("PollingPlace", "").strip(),
+                            "liberal_national_percentage": float(
+                                row.get("LiberalPercentage", 0)
+                            ),
+                            "labor_percentage": float(row.get("LaborPercentage", 0)),
+                            "total_votes": int(row.get("TotalVotes", 0)),
+                            "data": json.dumps(row),
+                        }
+                        booth_results.append(booth_result)
+                    except Exception as e:
+                        logger.warning(f"Error processing 2022 booth result row: {e}")
+                        continue
+
+                # Save to database
+                db_path_str = str(DB_PATH)
+                conn = sqlite3.connect(db_path_str)
+                cursor = conn.cursor()
+
+                # Create booth_results_2022 table if it doesn't exist
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS booth_results_2022 (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        division_name TEXT NOT NULL,
+                        polling_place_name TEXT NOT NULL,
+                        liberal_national_percentage REAL,
+                        labor_percentage REAL,
+                        total_votes INTEGER,
+                        data JSON
+                    )
+                """
+                )
+
+                # Clear existing data
+                cursor.execute("DELETE FROM booth_results_2022")
+                conn.commit()
+
+                # Insert new data
+                for result in booth_results:
+                    cursor.execute(
+                        """
+                        INSERT INTO booth_results_2022 
+                        (division_name, polling_place_name, liberal_national_percentage, 
+                         labor_percentage, total_votes, data)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                        (
+                            result["division_name"],
+                            result["polling_place_name"],
+                            result["liberal_national_percentage"],
+                            result["labor_percentage"],
+                            result["total_votes"],
+                            result["data"],
+                        ),
+                    )
+
+                conn.commit()
+                conn.close()
+
+                logger.info(
+                    f"Successfully processed and saved {len(booth_results)} 2022 booth results"
+                )
+
+        except Exception as e:
+            logger.error(f"Error processing 2022 booth results: {e}")
+            return False
+
+        # Now handle 2025 polling places data
         logger.info("Loading 2025 polling places data")
         polling_places_success = process_and_load_polling_places()
 
