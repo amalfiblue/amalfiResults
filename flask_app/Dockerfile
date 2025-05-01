@@ -31,4 +31,4 @@ WORKDIR /app/flask_app
 EXPOSE 5000
 
 # Run the application with Gunicorn using gevent worker for socket.io support
-CMD ["sh", "-c", "/app/wait-for-fastapi.sh && gunicorn --worker-class geventwebsocket.gunicorn.workers.GeventWebSocketWorker --bind 0.0.0.0:5000 app:app"]
+CMD ["sh", "-c", "gunicorn --worker-class geventwebsocket.gunicorn.workers.GeventWebSocketWorker --bind 0.0.0.0:5000 app:app"]
