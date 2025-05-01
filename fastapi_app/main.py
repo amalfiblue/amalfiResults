@@ -2,7 +2,7 @@ import os
 import re
 import sqlite3
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import httpx
@@ -509,20 +509,49 @@ async def scan_image(file: UploadFile = File(...)):
 
 
 @app.post("/inbound-sms")
-async def receive_sms(request: Request):
+async def inbound_sms(
+    request: Request,
+    from_number: str = Form(..., alias="from"),
+    to_number: str = Form(..., alias="to"),
+    body: str = Form(...),
+    timestamp: str = Form(...),
+    media: Optional[str] = Form(None),
+):
     """
     Process SMS with attached media for tally sheet scanning
     """
     try:
-        payload = await request.json()
-        text = payload.get("body")
-        media_urls = payload.get("media", [])
+        logger.info(f"Received SMS from {from_number} to {to_number} at {timestamp}")
+        logger.info(f"Message body: {body}")
+        logger.info(f"Media URL: {media}")
 
-        if not media_urls:
+        if not media:
             raise HTTPException(status_code=400, detail="No media attached to SMS")
 
-        # Process the first image (assuming it's the tally sheet)
-        result = await image_processor.process_sms_image(media_urls[0])
+        # Download and save the media locally
+        async with httpx.AsyncClient() as client:
+            response = await client.get(media)
+            if response.status_code != 200:
+                raise HTTPException(status_code=400, detail="Failed to download media")
+
+            # Generate a unique filename
+            timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            filename = f"sms_{timestamp_str}_{from_number}.jpg"
+            local_path = uploads_dir / filename
+
+            # Save the file
+            with open(local_path, "wb") as f:
+                f.write(response.content)
+
+            # Set permissions
+            os.chmod(local_path, 0o644)
+
+            # Create the URL for the saved file
+            local_url = f"/uploads/{filename}"
+            logger.info(f"Saved media to {local_path}")
+
+        # Process the image
+        result = await image_processor.process_sms_image(media)
 
         # Extract structured data from the tally sheet
         tally_data = extract_tally_sheet_data(
@@ -531,8 +560,6 @@ async def receive_sms(request: Request):
 
         db = SessionLocal()
         try:
-            image_url = media_urls[0]
-
             data_json = json.dumps(
                 {
                     "raw_rows": result["extracted_rows"],
@@ -541,7 +568,12 @@ async def receive_sms(request: Request):
                         "two_candidate_preferred"
                     ),
                     "totals": tally_data.get("totals"),
-                    "text": text,
+                    "text": body,
+                    "from_number": from_number,
+                    "to_number": to_number,
+                    "timestamp": timestamp,
+                    "media_url": media,
+                    "local_media_url": local_url,
                 }
             )
 
@@ -557,7 +589,7 @@ async def receive_sms(request: Request):
 
             if existing_result:
                 # Update existing result
-                existing_result.image_url = image_url
+                existing_result.image_url = local_url
                 existing_result.data = data_json
                 existing_result.timestamp = datetime.now(timezone.utc)
                 existing_result.is_reviewed = 0  # Reset review status
@@ -567,8 +599,10 @@ async def receive_sms(request: Request):
             else:
                 # Create new result
                 db_result = Result(
-                    image_url=image_url,
-                    electorate="Warringah",  # Hardcoded electorate
+                    image_url=local_url,
+                    electorate=tally_data.get(
+                        "electorate", "Warringah"
+                    ),  # Default to Warringah if not detected
                     booth_name=result["booth_name"] or tally_data.get("booth_name"),
                     data=data_json,
                 )
@@ -588,7 +622,7 @@ async def receive_sms(request: Request):
                         json={
                             "result_id": db_result.id,
                             "timestamp": db_result.timestamp.isoformat(),
-                            "electorate": "Warringah",  # Hardcoded electorate
+                            "electorate": db_result.electorate,
                             "booth_name": result["booth_name"]
                             or tally_data.get("booth_name"),
                         },
