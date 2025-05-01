@@ -942,6 +942,14 @@ def process_and_load_polling_places() -> bool:
             logger.error("Failed to download polling places data")
             return False
 
+        # Process the polling places data
+        success = process_polling_places_file(
+            Path(DATA_DIR, "polling_places", "polling-places-2025.csv")
+        )
+        if not success:
+            logger.error("Failed to process polling places data")
+            return False
+
         # Add pre-poll booths
         success = add_prepoll_booths()
         if not success:
