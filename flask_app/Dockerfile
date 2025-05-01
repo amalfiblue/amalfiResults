@@ -15,6 +15,7 @@ RUN poetry config virtualenvs.create false
 # Install dependencies
 RUN cd /app/flask_app && \
     poetry export -f requirements.txt -o requirements.txt && \
+    # pip install gunicorn geventwebsocket && \
     pip install -r requirements.txt
 
 # Create data directory for database
@@ -28,3 +29,4 @@ EXPOSE 5000
 
 # Run the application with Gunicorn using eventlet worker for socket.io support
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--worker-class", "eventlet", "--workers", "1", "app:app"]
+# CMD ["gunicorn", "-k", "geventwebsocket.gunicorn.workers.GeventWebSocketWorker", "-w", "1", "-b", "0.0.0.0:5000", "app:app"]
