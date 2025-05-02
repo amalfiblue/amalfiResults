@@ -338,7 +338,7 @@
     // Function to load polling places for the current division
     async function loadPollingPlaces(division) {
         try {
-            const response = await fetch(`${API_URL}/admin/polling-places/${division}`);
+            const response = await fetch(`${API_URL}/polling-places/division/${division}`);
             const data = await response.json();
             
             if (data.status === 'success') {
