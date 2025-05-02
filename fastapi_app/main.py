@@ -525,12 +525,17 @@ async def inbound_sms(
         logger.info(f"Message body: {body}")
         logger.info(f"Media URL: {media}")
 
-        if not media:
-            raise HTTPException(status_code=400, detail="No media attached to SMS")
+        # Use message body as image URL if media is None and body looks like a URL
+        image_url = media if media else (body if body.startswith("http") else None)
+
+        if not image_url:
+            raise HTTPException(
+                status_code=400, detail="No valid image URL found in message"
+            )
 
         # Download and save the media locally
         async with httpx.AsyncClient() as client:
-            response = await client.get(media)
+            response = await client.get(image_url)
             if response.status_code != 200:
                 raise HTTPException(status_code=400, detail="Failed to download media")
 
@@ -551,7 +556,7 @@ async def inbound_sms(
             logger.info(f"Saved media to {local_path}")
 
         # Process the image
-        result = await image_processor.process_sms_image(media)
+        result = await image_processor.process_sms_image(image_url)
 
         # Extract structured data from the tally sheet
         tally_data = extract_tally_sheet_data(
@@ -572,7 +577,7 @@ async def inbound_sms(
                     "from_number": from_number,
                     "to_number": to_number,
                     "timestamp": timestamp,
-                    "media_url": media,
+                    "media_url": image_url,
                     "local_media_url": local_url,
                 }
             )
@@ -1200,9 +1205,7 @@ async def review_result(result_id: int, request: Request):
     try:
         data = await request.json()
         action = data.get("action")
-        aec_booth_name = data.get(
-            "booth_name"
-        )  # Get the AEC booth name from the request
+        booth_name = data.get("booth_name")  # Get the booth name from the request
         primary_votes = data.get("primary_votes")  # Get edited primary votes
         tcp_votes = data.get("tcp_votes")  # Get edited TCP votes
         totals = data.get("totals")  # Get edited totals
@@ -1212,8 +1215,8 @@ async def review_result(result_id: int, request: Request):
                 status_code=400, detail="Action must be 'approve' or 'reject'"
             )
 
-        if not aec_booth_name:
-            raise HTTPException(status_code=400, detail="AEC booth name is required")
+        if not booth_name:
+            raise HTTPException(status_code=400, detail="Booth name is required")
 
         db = SessionLocal()
         try:
@@ -1245,7 +1248,8 @@ async def review_result(result_id: int, request: Request):
             result.reviewer = (
                 "Admin"  # You might want to get this from the request or session
             )
-            result.aec_booth_name = aec_booth_name  # Set the AEC booth name
+            result.booth_name = booth_name  # Update the booth name
+            result.aec_booth_name = booth_name  # Also update the AEC booth name
 
             db.commit()
 

@@ -345,12 +345,14 @@
                 const select = document.getElementById('polling-place-select');
                 select.innerHTML = '<option value="">Select Polling Place</option>';
                 
-                data.polling_places.forEach(place => {
-                    const option = document.createElement('option');
-                    option.value = place.name;
-                    option.textContent = place.name;
-                    select.appendChild(option);
-                });
+                if (data.polling_places && Array.isArray(data.polling_places)) {
+                    data.polling_places.forEach(place => {
+                        const option = document.createElement('option');
+                        option.value = place.polling_place_id;
+                        option.textContent = place.polling_place_name;
+                        select.appendChild(option);
+                    });
+                }
             }
         } catch (error) {
             console.error('Error loading polling places:', error);
@@ -526,13 +528,16 @@
     async function approveResult() {
         if (confirm('Are you sure you want to approve this result?')) {
             try {
+                const boothName = document.getElementById('result-booth-name-input').value;
+                
                 const response = await fetch(`${API_URL}/admin/review-result/${currentResultId}`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        action: 'approve'
+                        action: 'approve',
+                        booth_name: boothName
                     })
                 });
                 

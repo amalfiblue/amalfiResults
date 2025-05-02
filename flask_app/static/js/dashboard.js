@@ -9,18 +9,31 @@ document.addEventListener('DOMContentLoaded', function() {
     // Get the currently selected division from the navbar
     const selectedDivision = document.querySelector('#divisionDropdown')?.textContent.trim();
     
-    if (selectedDivision) {
+    if (selectedDivision && selectedDivision !== 'Select Division') {
         // Initialize the dashboard with the selected division
         selectElectorate(selectedDivision);
     }
     
     // Listen for changes in the division dropdown
-    document.getElementById('divisionDropdown').addEventListener('click', function(e) {
-        if (e.target.classList.contains('dropdown-item')) {
-            const newDivision = e.target.textContent.trim();
-            selectElectorate(newDivision);
+    const divisionDropdown = document.querySelector('#divisionDropdown').nextElementSibling;
+    if (divisionDropdown) {
+        divisionDropdown.addEventListener('click', function(e) {
+            if (e.target.classList.contains('dropdown-item')) {
+                const newDivision = e.target.textContent.trim();
+                if (newDivision !== 'All Divisions') {
+                    selectElectorate(newDivision);
+                }
+            }
+        });
+    }
+
+    // If no division dropdown, try to get the selected electorate from the template
+    if (!selectedDivision) {
+        const selectedElectorate = document.querySelector('#electorate-title')?.textContent.trim();
+        if (selectedElectorate && selectedElectorate !== 'Select an Electorate') {
+            selectElectorate(selectedElectorate);
         }
-    });
+    }
 });
 
 // Set up event listeners
@@ -179,7 +192,7 @@ function updatePrimaryVotes(votes) {
         <tr>
             <td>${v.candidate}</td>
             <td>${v.votes.toLocaleString()}</td>
-            <td>${v.percentage.toFixed(2)}%</td>
+            <td>${v.percentage ? v.percentage.toFixed(2) : '0.00'}%</td>
         </tr>
     `).join('');
 }
@@ -191,11 +204,16 @@ function updateBoothResults(booths) {
         // Calculate total primary votes
         const totalPrimaryVotes = Object.values(booth.primary_votes || {}).reduce((sum, votes) => sum + votes, 0);
         
-        // Calculate total TCP votes for each candidate
-        const tcpTotals = {};
+        // Calculate total votes for each TCP candidate (primary + TCP)
+        const totalVotes = {};
         if (booth.tcp_votes) {
             Object.entries(booth.tcp_votes).forEach(([tcpCandidate, distributions]) => {
-                tcpTotals[tcpCandidate] = Object.values(distributions).reduce((sum, votes) => sum + votes, 0);
+                // Get TCP votes for this candidate
+                const tcpVotes = Object.values(distributions).reduce((sum, votes) => sum + votes, 0);
+                // Get primary votes for this candidate
+                const primaryVotes = booth.primary_votes?.[tcpCandidate] || 0;
+                // Total is primary + TCP
+                totalVotes[tcpCandidate] = primaryVotes + tcpVotes;
             });
         }
         
@@ -204,7 +222,7 @@ function updateBoothResults(booths) {
                 <td>${booth.booth_name}</td>
                 <td>${new Date(booth.timestamp).toLocaleString()}</td>
                 <td>${totalPrimaryVotes.toLocaleString()}</td>
-                <td>${Object.entries(tcpTotals).map(([candidate, votes]) => 
+                <td>${Object.entries(totalVotes).map(([candidate, votes]) => 
                     `${candidate}: ${votes.toLocaleString()}`).join(', ')}</td>
                 <td>
                     <a href="/results/${booth.id}" class="btn btn-sm btn-primary">View Details</a>
@@ -379,95 +397,70 @@ function updateTCPVotes(votes) {
     updateNetTCPPosition(votes, tcpCandidates);
 }
 
-// Function to update net TCP position
+// Function to update net TCP position display
 function updateNetTCPPosition(votes, tcpCandidates) {
-    // Sort TCP candidates to ensure Steggall appears first
-    const sortedTcpCandidates = [...tcpCandidates].sort((a, b) => a === 'STEGGALL' ? -1 : 1);
-    
     // Calculate total votes for each TCP candidate
-    const tcpTotals = {};
-    sortedTcpCandidates.forEach(candidate => {
-        // Start with their primary votes (if they are in the votes array)
-        const candidateData = votes.find(v => v.candidate === candidate);
-        tcpTotals[candidate] = candidateData ? candidateData.primary_votes : 0;
-        
-        // Add distributed votes to them
-        votes.forEach(v => {
-            if (v.candidate !== candidate) { // Don't count their own votes twice
-                tcpTotals[candidate] += v.distributions[candidate].votes;
-            }
-        });
+    const totalVotes = {};
+    tcpCandidates.forEach(tcpCandidate => {
+        totalVotes[tcpCandidate] = votes.reduce((sum, v) => {
+            return sum + (v.distributions[tcpCandidate]?.votes || 0);
+        }, 0);
     });
 
-    // Create horizontal bar chart for net position
-    const netCtx = document.getElementById('net-tcp-position-chart').getContext('2d');
-    if (window.netTCPChart) {
-        window.netTCPChart.destroy();
-    }
+    // Calculate total votes across all TCP candidates
+    const grandTotal = Object.values(totalVotes).reduce((sum, votes) => sum + votes, 0);
 
-    const totalVotes = Object.values(tcpTotals).reduce((sum, votes) => sum + votes, 0);
-    
-    window.netTCPChart = new Chart(netCtx, {
-        type: 'bar',
-        data: {
-            labels: sortedTcpCandidates,
-            datasets: [{
-                label: 'Total TCP Votes',
-                data: sortedTcpCandidates.map(candidate => tcpTotals[candidate]),
-                backgroundColor: sortedTcpCandidates.map(candidate => 
-                    candidate === 'STEGGALL' ? 'rgba(92, 205, 201, 0.9)' : 'rgba(0, 0, 80, 0.9)'),
-                borderColor: sortedTcpCandidates.map(candidate => 
-                    candidate === 'ROGERS' ? 'rgb(30, 67, 215)' : 'rgb(59, 59, 246)'),
-                borderWidth: 1
-            }]
-        },
-        options: {
-            indexAxis: 'y',
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            const votes = context.raw;
-                            const percentage = ((votes / totalVotes) * 100).toFixed(2);
-                            return `${votes.toLocaleString()} votes (${percentage}%)`;
-                        }
-                    }
-                }
-            },
-            scales: {
-                x: {
-                    beginAtZero: true,
-                    title: {
-                        display: true,
-                        text: 'Total TCP Votes'
-                    }
-                }
-            }
-        }
+    // Create the position bars container
+    const container = document.createElement('div');
+    container.className = 'position-bars';
+
+    // Create a bar for each TCP candidate
+    tcpCandidates.forEach(tcpCandidate => {
+        const votes = totalVotes[tcpCandidate];
+        const percentage = grandTotal > 0 ? (votes / grandTotal * 100).toFixed(2) : '0.00';
+
+        const barContainer = document.createElement('div');
+        barContainer.className = 'position-bar-container';
+
+        const bar = document.createElement('div');
+        bar.className = 'position-bar';
+        bar.style.width = '100%';
+        bar.style.backgroundColor = tcpCandidate === 'STEGGALL' ? '#5CCDC9' : '#000050';
+
+        const text = document.createElement('span');
+        text.className = 'position-bar-text';
+        text.textContent = `${tcpCandidate}: ${votes.toLocaleString()} votes (${percentage}%)`;
+
+        bar.appendChild(text);
+        barContainer.appendChild(bar);
+        container.appendChild(barContainer);
     });
 
-    // Add a summary table below the chart
-    const summaryDiv = document.getElementById('tcp-summary');
-    summaryDiv.innerHTML = `
-        <table class="table table-sm">
-            <thead>
+    // Update the summary section
+    const summary = document.getElementById('tcp-summary');
+    summary.innerHTML = '';
+    summary.appendChild(container);
+
+    // Add a summary table below the bars
+    const table = document.createElement('table');
+    table.className = 'table table-sm mt-3';
+    table.innerHTML = `
+        <thead>
+            <tr>
+                <th>Candidate</th>
+                <th>Total Votes</th>
+                <th>Percentage</th>
+            </tr>
+        </thead>
+        <tbody>
+            ${tcpCandidates.map(candidate => `
                 <tr>
-                    <th>Candidate</th>
-                    <th>Total TCP Votes</th>
-                    <th>Percentage</th>
+                    <td>${candidate}</td>
+                    <td>${totalVotes[candidate].toLocaleString()}</td>
+                    <td>${grandTotal > 0 ? (totalVotes[candidate] / grandTotal * 100).toFixed(2) : '0.00'}%</td>
                 </tr>
-            </thead>
-            <tbody>
-                ${sortedTcpCandidates.map(candidate => `
-                    <tr>
-                        <td>${candidate}</td>
-                        <td>${tcpTotals[candidate].toLocaleString()}</td>
-                        <td>${((tcpTotals[candidate] / totalVotes) * 100).toFixed(2)}%</td>
-                    </tr>
-                `).join('')}
-            </tbody>
-        </table>
+            `).join('')}
+        </tbody>
     `;
+    summary.appendChild(table);
 } 
