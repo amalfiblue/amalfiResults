@@ -206,24 +206,56 @@ function updateBoothResults(booths) {
         
         // Calculate total votes for each TCP candidate (primary + TCP)
         const totalVotes = {};
-        if (booth.tcp_votes) {
-            Object.entries(booth.tcp_votes).forEach(([tcpCandidate, distributions]) => {
-                // Get TCP votes for this candidate
-                const tcpVotes = Object.values(distributions).reduce((sum, votes) => sum + votes, 0);
-                // Get primary votes for this candidate
-                const primaryVotes = booth.primary_votes?.[tcpCandidate] || 0;
-                // Total is primary + TCP
-                totalVotes[tcpCandidate] = primaryVotes + tcpVotes;
+        const tcpVotes = booth.tcp_votes || booth.two_candidate_preferred || {};
+        
+        // Initialize TCP candidates with their primary votes
+        Object.entries(tcpVotes).forEach(([tcpCandidate, distributions]) => {
+            // Find the full name in primary_votes that contains the TCP candidate's last name
+            const fullName = Object.keys(booth.primary_votes || {}).find(name => 
+                name.toUpperCase().includes(tcpCandidate.toUpperCase())
+            );
+            totalVotes[tcpCandidate] = fullName ? booth.primary_votes[fullName] : 0;
+        });
+        
+        // Add TCP distributions from all candidates
+        Object.entries(tcpVotes).forEach(([tcpCandidate, distributions]) => {
+            Object.entries(distributions).forEach(([fromCandidate, votes]) => {
+                totalVotes[tcpCandidate] += votes;
             });
-        }
+        });
+        
+        // Sort TCP candidates to ensure Steggall appears first
+        const sortedTcpCandidates = Object.keys(totalVotes).sort((a, b) => a === 'STEGGALL' ? -1 : 1);
+        
+        // Calculate total TCP votes for percentage calculations
+        const totalTCPVotes = Object.values(totalVotes).reduce((sum, votes) => sum + votes, 0);
+        
+        // Create the bar chart HTML
+        const barChart = `
+            <div class="tcp-bar-chart" style="position: relative; height: 30px; width: 100%; background: #f0f0f0; border-radius: 4px;">
+                ${sortedTcpCandidates.map((candidate, index) => {
+                    const votes = totalVotes[candidate];
+                    const percentage = totalTCPVotes > 0 ? (votes / totalTCPVotes * 100) : 0;
+                    const color = candidate === 'STEGGALL' ? 'rgba(92, 205, 201, 0.8)' : 'rgba(0, 0, 80, 0.8)';
+                    const left = index === 0 ? '0' : `${sortedTcpCandidates.slice(0, index).reduce((sum, c) => sum + (totalVotes[c] / totalTCPVotes * 100), 0)}%`;
+                    
+                    return `
+                        <div style="position: absolute; left: ${left}; width: ${percentage}%; height: 100%; background: ${color}; border-radius: ${index === 0 ? '4px 0 0 4px' : index === sortedTcpCandidates.length - 1 ? '0 4px 4px 0' : '0'};">
+                            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-weight: bold; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">
+                                ${votes.toLocaleString()}
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
         
         return `
             <tr>
                 <td>${booth.booth_name}</td>
                 <td>${new Date(booth.timestamp).toLocaleString()}</td>
                 <td>${totalPrimaryVotes.toLocaleString()}</td>
-                <td>${Object.entries(totalVotes).map(([candidate, votes]) => 
-                    `${candidate}: ${votes.toLocaleString()}`).join(', ')}</td>
+                <td>${barChart}</td>
                 <td>
                     <a href="/results/${booth.id}" class="btn btn-sm btn-primary">View Details</a>
                 </td>
@@ -410,57 +442,30 @@ function updateNetTCPPosition(votes, tcpCandidates) {
     // Calculate total votes across all TCP candidates
     const grandTotal = Object.values(totalVotes).reduce((sum, votes) => sum + votes, 0);
 
-    // Create the position bars container
-    const container = document.createElement('div');
-    container.className = 'position-bars';
-
-    // Create a bar for each TCP candidate
-    tcpCandidates.forEach(tcpCandidate => {
-        const votes = totalVotes[tcpCandidate];
-        const percentage = grandTotal > 0 ? (votes / grandTotal * 100).toFixed(2) : '0.00';
-
-        const barContainer = document.createElement('div');
-        barContainer.className = 'position-bar-container';
-
-        const bar = document.createElement('div');
-        bar.className = 'position-bar';
-        bar.style.width = '100%';
-        bar.style.backgroundColor = tcpCandidate === 'STEGGALL' ? '#5CCDC9' : '#000050';
-
-        const text = document.createElement('span');
-        text.className = 'position-bar-text';
-        text.textContent = `${tcpCandidate}: ${votes.toLocaleString()} votes (${percentage}%)`;
-
-        bar.appendChild(text);
-        barContainer.appendChild(bar);
-        container.appendChild(barContainer);
-    });
-
-    // Update the summary section
+    // Update the summary section with a simple table
     const summary = document.getElementById('tcp-summary');
-    summary.innerHTML = '';
-    summary.appendChild(container);
-
-    // Add a summary table below the bars
-    const table = document.createElement('table');
-    table.className = 'table table-sm mt-3';
-    table.innerHTML = `
-        <thead>
-            <tr>
-                <th>Candidate</th>
-                <th>Total Votes</th>
-                <th>Percentage</th>
-            </tr>
-        </thead>
-        <tbody>
-            ${tcpCandidates.map(candidate => `
+    summary.innerHTML = `
+        <table class="table table-sm">
+            <thead>
                 <tr>
-                    <td>${candidate}</td>
-                    <td>${totalVotes[candidate].toLocaleString()}</td>
-                    <td>${grandTotal > 0 ? (totalVotes[candidate] / grandTotal * 100).toFixed(2) : '0.00'}%</td>
+                    <th>Candidate</th>
+                    <th>Total Votes</th>
+                    <th>Percentage</th>
                 </tr>
-            `).join('')}
-        </tbody>
+            </thead>
+            <tbody>
+                ${tcpCandidates.map(candidate => {
+                    const votes = totalVotes[candidate];
+                    const percentage = grandTotal > 0 ? (votes / grandTotal * 100).toFixed(2) : '0.00';
+                    return `
+                        <tr>
+                            <td>${candidate}</td>
+                            <td>${votes.toLocaleString()}</td>
+                            <td>${percentage}%</td>
+                        </tr>
+                    `;
+                }).join('')}
+            </tbody>
+        </table>
     `;
-    summary.appendChild(table);
 } 
