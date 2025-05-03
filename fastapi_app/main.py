@@ -525,8 +525,38 @@ async def inbound_sms(
         logger.info(f"Message body: {body}")
         logger.info(f"Media URL: {media}")
 
-        # Use message body as image URL if media is None and body looks like a URL
-        image_url = media if media else (body if body.startswith("http") else None)
+        # Get the image URL from either media parameter or message body
+        image_url = media
+        if not image_url and body.startswith("http"):
+            # Extract the first URL from the message body
+            url_match = re.search(r"https?://[^\s]+", body)
+            if url_match:
+                image_url = url_match.group(0)
+                # Properly encode the URL while preserving its structure
+                try:
+                    from urllib.parse import urlparse, urlunparse, quote
+
+                    parsed = urlparse(image_url)
+                    # Encode the path and query components separately
+                    path = quote(parsed.path, safe="/")
+                    query = quote(parsed.query, safe="=&")
+                    image_url = urlunparse(
+                        (
+                            parsed.scheme,
+                            parsed.netloc,
+                            path,
+                            parsed.params,
+                            query,
+                            parsed.fragment,
+                        )
+                    )
+                    logger.info(
+                        f"Extracted and encoded URL from message body: {image_url}"
+                    )
+                except Exception as e:
+                    logger.error(f"Error encoding URL: {e}")
+                    # If encoding fails, use the original URL
+                    logger.info(f"Using original URL: {image_url}")
 
         if not image_url:
             raise HTTPException(
