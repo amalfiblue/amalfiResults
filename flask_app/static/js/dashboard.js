@@ -145,6 +145,67 @@ function updateDashboard(data) {
     document.getElementById('update-time').textContent = 
         lastUpdated.toLocaleTimeString();
     
+    // Calculate total TCP votes across all booths
+    const totalTCPVotes = {};
+    data.booth_results.forEach(booth => {
+        const tcpVotes = booth.tcp_votes || booth.two_candidate_preferred || {};
+        Object.entries(tcpVotes).forEach(([tcpCandidate, distributions]) => {
+            // Find the full name in primary_votes that contains the TCP candidate's last name
+            const fullName = Object.keys(booth.primary_votes || {}).find(name => 
+                name.toUpperCase().includes(tcpCandidate.toUpperCase())
+            );
+            if (!totalTCPVotes[tcpCandidate]) {
+                totalTCPVotes[tcpCandidate] = fullName ? booth.primary_votes[fullName] : 0;
+            } else {
+                totalTCPVotes[tcpCandidate] += fullName ? booth.primary_votes[fullName] : 0;
+            }
+            
+            // Add TCP distributions
+            Object.entries(distributions).forEach(([fromCandidate, votes]) => {
+                totalTCPVotes[tcpCandidate] += votes;
+            });
+        });
+    });
+    
+    // Sort TCP candidates to ensure Steggall appears first
+    const sortedTcpCandidates = Object.keys(totalTCPVotes).sort((a, b) => a === 'STEGGALL' ? -1 : 1);
+    
+    // Calculate total votes for percentage calculations
+    const grandTotal = Object.values(totalTCPVotes).reduce((sum, votes) => sum + votes, 0);
+    
+    // Create the summary bar chart HTML
+    const summaryBarChart = `
+        <div class="tcp-summary-bar" style="width: 100%; background: white; padding: 20px; margin-bottom: 20px;">
+            <div class="container">
+                <h4>Total TCP Votes</h4>
+                <div class="tcp-bar-chart" style="position: relative; height: 40px; width: 100%; background: #f0f0f0; border-radius: 4px;">
+                    ${sortedTcpCandidates.map((candidate, index) => {
+                        const votes = totalTCPVotes[candidate];
+                        const percentage = grandTotal > 0 ? (votes / grandTotal * 100) : 0;
+                        const color = candidate === 'STEGGALL' ? 'rgba(92, 205, 201, 0.8)' : 'rgba(0, 0, 80, 0.8)';
+                        const left = index === 0 ? '0' : `${sortedTcpCandidates.slice(0, index).reduce((sum, c) => sum + (totalTCPVotes[c] / grandTotal * 100), 0)}%`;
+                        
+                        return `
+                            <div style="position: absolute; left: ${left}; width: ${percentage}%; height: 100%; background: ${color}; border-radius: ${index === 0 ? '4px 0 0 4px' : index === sortedTcpCandidates.length - 1 ? '0 4px 4px 0' : '0'};">
+                                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-weight: bold; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);">
+                                    ${candidate}: ${votes.toLocaleString()}
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Insert the summary bar chart after the navbar
+    const navbar = document.querySelector('nav');
+    const existingSummary = document.querySelector('.tcp-summary-bar');
+    if (existingSummary) {
+        existingSummary.remove();
+    }
+    navbar.insertAdjacentHTML('afterend', summaryBarChart);
+    
     // Update primary votes chart and table
     updatePrimaryVotes(data.primary_votes);
     
