@@ -511,8 +511,9 @@ async def scan_image(file: UploadFile = File(...)):
 
 @app.post("/inbound-sms")
 async def inbound_sms(
-    from_number: str = Form(...),
-    to_number: str = Form(...),
+    request: Request,
+    from_number: str = Form(..., alias="from"),
+    to_number: str = Form(..., alias="to"),
     body: str = Form(...),
     timestamp: str = Form(...),
     media: str = Form(None),
