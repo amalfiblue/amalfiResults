@@ -574,9 +574,85 @@ async def inbound_sms(
         result = await image_processor.process_sms_image(image_url)
 
         # Save to database
-        result_id = save_to_database(result)
+        db = SessionLocal()
+        try:
+            data_json = json.dumps(
+                {
+                    "raw_rows": result["extracted_rows"],
+                    "primary_votes": result.get("primary_votes", {}),
+                    "two_candidate_preferred": result.get(
+                        "two_candidate_preferred", {}
+                    ),
+                    "totals": result.get("totals", {}),
+                    "text": body,
+                    "from_number": from_number,
+                    "to_number": to_number,
+                    "timestamp": timestamp,
+                    "media_url": image_url,
+                }
+            )
 
-        return {"status": "success", "result_id": result_id}
+            # Check for existing result for this booth
+            existing_result = (
+                db.query(Result)
+                .filter_by(
+                    electorate=result.get("electorate", "Warringah"),
+                    booth_name=result.get("booth_name", "Unknown Booth"),
+                )
+                .first()
+            )
+
+            if existing_result:
+                # Update existing result
+                existing_result.image_url = image_url
+                existing_result.data = data_json
+                existing_result.timestamp = datetime.now(timezone.utc)
+                existing_result.is_reviewed = 0  # Reset review status
+                existing_result.reviewer = None
+                db_result = existing_result
+                logger.info(f"Updated existing result with ID: {db_result.id}")
+            else:
+                # Create new result
+                db_result = Result(
+                    image_url=image_url,
+                    electorate=result.get("electorate", "Warringah"),
+                    booth_name=result.get("booth_name", "Unknown Booth"),
+                    data=data_json,
+                )
+                db.add(db_result)
+                logger.info(f"Created new result with ID: {db_result.id}")
+
+            db.commit()
+            db.refresh(db_result)
+            logger.info(f"Saved SMS result to database with ID: {db_result.id}")
+
+            # Notify Flask app
+            try:
+                logger.info(f"Notifying Flask app at {FLASK_APP_URL}")
+                async with httpx.AsyncClient() as client:
+                    await client.post(
+                        FLASK_APP_URL,
+                        json={
+                            "result_id": db_result.id,
+                            "timestamp": db_result.timestamp.isoformat(),
+                            "electorate": db_result.electorate,
+                            "booth_name": db_result.booth_name,
+                        },
+                    )
+            except Exception as notify_err:
+                logger.error(f"Failed to notify Flask app: {notify_err}")
+
+            return {
+                "status": "success",
+                "result_id": db_result.id,
+                "electorate": db_result.electorate,
+                "booth_name": db_result.booth_name,
+                "primary_votes": result.get("primary_votes", {}),
+                "two_candidate_preferred": result.get("two_candidate_preferred", {}),
+                "totals": result.get("totals", {}),
+            }
+        finally:
+            db.close()
     except Exception as e:
         logger.error(f"Error processing image: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
