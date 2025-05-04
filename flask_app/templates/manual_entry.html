@@ -94,8 +94,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Set up event listeners
 function setupEventListeners() {
-    // Auto-calculate total votes
-    document.getElementById('formal_votes').addEventListener('input', calculateTotal);
+    // Auto-calculate total votes when informal votes change
     document.getElementById('informal_votes').addEventListener('input', calculateTotal);
 
     // Form submission
@@ -103,6 +102,15 @@ function setupEventListeners() {
         e.preventDefault();
         submitForm();
     });
+}
+
+function calculateFormalVotes() {
+    let totalPrimaryVotes = 0;
+    document.querySelectorAll('.primary-vote').forEach(input => {
+        totalPrimaryVotes += parseInt(input.value) || 0;
+    });
+    document.getElementById('formal_votes').value = totalPrimaryVotes;
+    calculateTotal(); // Update total votes as well
 }
 
 function calculateTotal() {
@@ -129,15 +137,37 @@ function validateTotalVotes() {
 }
 
 function validateTCPVotes() {
+    // Check each candidate's TCP votes
+    let isValid = true;
+    document.querySelectorAll('.primary-vote').forEach(primaryInput => {
+        const candidateName = primaryInput.dataset.candidate;
+        if (candidateName !== 'STEGGALL' && candidateName !== 'ROGERS') {
+            const primaryVotes = parseInt(primaryInput.value) || 0;
+            let totalTCPForCandidate = 0;
+            
+            // Get all TCP votes for this candidate
+            document.querySelectorAll(`.tcp-vote[data-from="${candidateName}"]`).forEach(tcpInput => {
+                totalTCPForCandidate += parseInt(tcpInput.value) || 0;
+            });
+            
+            // Check if TCP votes exceed primary votes
+            if (totalTCPForCandidate > primaryVotes) {
+                isValid = false;
+                showValidationError(`Total TCP votes for ${candidateName} (${totalTCPForCandidate}) exceed primary votes (${primaryVotes})`);
+                return false;
+            }
+        }
+    });
+    
+    if (!isValid) return false;
+    
+    // Check total TCP votes match total primary votes (including TCP candidates)
     let totalPrimaryVotes = 0;
     let totalTCPVotes = 0;
     
-    // Calculate total primary votes excluding TCP candidates
+    // Calculate total primary votes including TCP candidates
     document.querySelectorAll('.primary-vote').forEach(input => {
-        const candidateName = input.dataset.candidate;
-        if (candidateName !== 'STEGGALL' && candidateName !== 'ROGERS') {
-            totalPrimaryVotes += parseInt(input.value) || 0;
-        }
+        totalPrimaryVotes += parseInt(input.value) || 0;
     });
     
     // Calculate total TCP votes
@@ -145,7 +175,12 @@ function validateTCPVotes() {
         totalTCPVotes += parseInt(input.value) || 0;
     });
     
-    return totalTCPVotes === totalPrimaryVotes;
+    if (totalTCPVotes !== totalPrimaryVotes) {
+        showValidationError(`Total TCP votes (${totalTCPVotes}) must equal total primary votes (${totalPrimaryVotes})`);
+        return false;
+    }
+    
+    return true;
 }
 
 function showValidationError(message) {
@@ -229,21 +264,33 @@ function renderCandidateVotes() {
             const candidateName = this.dataset.candidate;
             const primaryVotes = parseInt(this.value) || 0;
             
-            // Find the TCP inputs for this candidate
-            const tcpInputs = document.querySelectorAll(`.tcp-vote[data-from="${candidateName}"]`);
-            let totalTCP = 0;
-            
-            tcpInputs.forEach(tcpInput => {
-                const tcpVotes = parseInt(tcpInput.value) || 0;
-                totalTCP += tcpVotes;
-            });
-
-            // If TCP votes exceed primary votes, reset TCP votes
-            if (totalTCP > primaryVotes) {
+            // If this is a TCP candidate, automatically set their TCP votes
+            if (candidateName === 'STEGGALL') {
+                const tcpInput = document.querySelector(`.tcp-vote[data-from="${candidateName}"][data-tcp="STEGGALL"]`);
+                tcpInput.value = primaryVotes;
+            } else if (candidateName === 'ROGERS') {
+                const tcpInput = document.querySelector(`.tcp-vote[data-from="${candidateName}"][data-tcp="ROGERS"]`);
+                tcpInput.value = primaryVotes;
+            } else {
+                // For non-TCP candidates, find their TCP inputs
+                const tcpInputs = document.querySelectorAll(`.tcp-vote[data-from="${candidateName}"]`);
+                let totalTCP = 0;
+                
                 tcpInputs.forEach(tcpInput => {
-                    tcpInput.value = '';
+                    const tcpVotes = parseInt(tcpInput.value) || 0;
+                    totalTCP += tcpVotes;
                 });
+
+                // If TCP votes exceed primary votes, reset TCP votes
+                if (totalTCP > primaryVotes) {
+                    tcpInputs.forEach(tcpInput => {
+                        tcpInput.value = '';
+                    });
+                }
             }
+            
+            // Update formal votes after any primary vote change
+            calculateFormalVotes();
         });
     });
 
@@ -253,6 +300,11 @@ function renderCandidateVotes() {
             const candidateName = this.dataset.from;
             const primaryInput = document.querySelector(`.primary-vote[data-candidate="${candidateName}"]`);
             const primaryVotes = parseInt(primaryInput.value) || 0;
+            
+            // Skip if this is a TCP candidate
+            if (candidateName === 'STEGGALL' || candidateName === 'ROGERS') {
+                return;
+            }
             
             // Get all TCP votes for this candidate
             const tcpInputs = document.querySelectorAll(`.tcp-vote[data-from="${candidateName}"]`);
@@ -267,6 +319,11 @@ function renderCandidateVotes() {
             if (totalTCP > primaryVotes) {
                 this.value = '';
                 alert(`Total TCP votes cannot exceed primary votes (${primaryVotes})`);
+            } else {
+                // Auto-fill the other TCP column with remaining votes
+                const otherTCP = primaryVotes - totalTCP;
+                const otherTCPInput = tcpInputs[0] === this ? tcpInputs[1] : tcpInputs[0];
+                otherTCPInput.value = otherTCP;
             }
         });
     });

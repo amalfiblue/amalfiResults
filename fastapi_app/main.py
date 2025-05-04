@@ -29,6 +29,7 @@ import logging
 from typing import Dict, List, Optional, Any, Tuple
 from pydantic import BaseModel
 from collections import defaultdict
+import urllib.parse
 
 # Add the parent directory to Python path to find modules
 import sys
@@ -510,180 +511,73 @@ async def scan_image(file: UploadFile = File(...)):
 
 @app.post("/inbound-sms")
 async def inbound_sms(
-    request: Request,
-    from_number: str = Form(..., alias="from"),
-    to_number: str = Form(..., alias="to"),
+    from_number: str = Form(...),
+    to_number: str = Form(...),
     body: str = Form(...),
     timestamp: str = Form(...),
-    media: Optional[str] = Form(None),
+    media: str = Form(None),
 ):
-    """
-    Process SMS with attached media for tally sheet scanning
-    """
+    logger.info(f"Received SMS from {from_number} to {to_number} at {timestamp}")
+    logger.info(f"Message body: {body}")
+    logger.info(f"Media URL: {media}")
+
+    # Determine the image URL
+    image_url = media
+    if not image_url:
+        # Extract URL from message body if no media parameter
+        url_match = re.search(r"https?://[^\s]+", body)
+        if url_match:
+            image_url = url_match.group(0)
+            logger.info(f"Extracted URL from message body: {image_url}")
+        else:
+            logger.error("No image URL found in message")
+            raise HTTPException(status_code=400, detail="No image URL found in message")
+
     try:
-        logger.info(f"Received SMS from {from_number} to {to_number} at {timestamp}")
-        logger.info(f"Message body: {body}")
-        logger.info(f"Media URL: {media}")
+        # For AWS S3 URLs, we need to preserve the exact URL structure
+        if (
+            "s3.amazonaws.com" in image_url
+            or "s3.ap-southeast-2.amazonaws.com" in image_url
+        ):
+            # Clean the URL by removing any non-printable characters but preserve the structure
+            cleaned_url = "".join(c for c in image_url if c.isprintable())
+            logger.info(f"Using cleaned S3 URL: {cleaned_url}")
 
-        # Get the image URL from either media parameter or message body
-        image_url = media
-        if not image_url and body.startswith("http"):
-            # Extract the first URL from the message body
-            url_match = re.search(r"https?://[^\s]+", body)
-            if url_match:
-                image_url = url_match.group(0)
-                # Properly encode the URL while preserving its structure
-                try:
-                    from urllib.parse import urlparse, urlunparse, quote
-
-                    parsed = urlparse(image_url)
-                    # Encode the path and query components separately
-                    path = quote(parsed.path, safe="/")
-                    query = quote(parsed.query, safe="=&")
-                    image_url = urlunparse(
-                        (
-                            parsed.scheme,
-                            parsed.netloc,
-                            path,
-                            parsed.params,
-                            query,
-                            parsed.fragment,
-                        )
-                    )
-                    logger.info(
-                        f"Extracted and encoded URL from message body: {image_url}"
-                    )
-                except Exception as e:
-                    logger.error(f"Error encoding URL: {e}")
-                    # If encoding fails, use the original URL
-                    logger.info(f"Using original URL: {image_url}")
-
-        if not image_url:
-            raise HTTPException(
-                status_code=400, detail="No valid image URL found in message"
+            # Download the image
+            async with httpx.AsyncClient() as client:
+                response = await client.get(cleaned_url)
+                response.raise_for_status()
+                image_data = response.content
+        else:
+            # For non-S3 URLs, we can use standard URL parsing
+            parsed_url = urllib.parse.urlparse(image_url)
+            encoded_url = urllib.parse.urlunparse(
+                (
+                    parsed_url.scheme,
+                    parsed_url.netloc,
+                    parsed_url.path,
+                    parsed_url.params,
+                    parsed_url.query,
+                    parsed_url.fragment,
+                )
             )
+            logger.info(f"Using encoded URL: {encoded_url}")
 
-        # Download and save the media locally
-        async with httpx.AsyncClient() as client:
-            response = await client.get(image_url)
-            if response.status_code != 200:
-                raise HTTPException(status_code=400, detail="Failed to download media")
-
-            # Generate a unique filename
-            timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-            filename = f"sms_{timestamp_str}_{from_number}.jpg"
-            local_path = uploads_dir / filename
-
-            # Save the file
-            with open(local_path, "wb") as f:
-                f.write(response.content)
-
-            # Set permissions
-            os.chmod(local_path, 0o644)
-
-            # Create the URL for the saved file
-            local_url = f"/uploads/{filename}"
-            logger.info(f"Saved media to {local_path}")
+            # Download the image
+            async with httpx.AsyncClient() as client:
+                response = await client.get(encoded_url)
+                response.raise_for_status()
+                image_data = response.content
 
         # Process the image
         result = await image_processor.process_sms_image(image_url)
 
-        # Extract structured data from the tally sheet
-        tally_data = extract_tally_sheet_data(
-            result["extracted_rows"], result.get("booth_name", None)
-        )
+        # Save to database
+        result_id = save_to_database(result)
 
-        db = SessionLocal()
-        try:
-            data_json = json.dumps(
-                {
-                    "raw_rows": result["extracted_rows"],
-                    "primary_votes": tally_data.get("primary_votes"),
-                    "two_candidate_preferred": tally_data.get(
-                        "two_candidate_preferred"
-                    ),
-                    "totals": tally_data.get("totals"),
-                    "text": body,
-                    "from_number": from_number,
-                    "to_number": to_number,
-                    "timestamp": timestamp,
-                    "media_url": image_url,
-                    "local_media_url": local_url,
-                }
-            )
-
-            # Check for existing result for this booth
-            existing_result = (
-                db.query(Result)
-                .filter_by(
-                    electorate=tally_data.get("electorate"),
-                    booth_name=result["booth_name"] or tally_data.get("booth_name"),
-                )
-                .first()
-            )
-
-            if existing_result:
-                # Update existing result
-                existing_result.image_url = local_url
-                existing_result.data = data_json
-                existing_result.timestamp = datetime.now(timezone.utc)
-                existing_result.is_reviewed = 0  # Reset review status
-                existing_result.reviewer = None
-                db_result = existing_result
-                logger.info(f"Updated existing result with ID: {db_result.id}")
-            else:
-                # Create new result
-                db_result = Result(
-                    image_url=local_url,
-                    electorate=tally_data.get(
-                        "electorate", "Warringah"
-                    ),  # Default to Warringah if not detected
-                    booth_name=result["booth_name"] or tally_data.get("booth_name"),
-                    data=data_json,
-                )
-                db.add(db_result)
-                logger.info(f"Created new result with ID: {db_result.id}")
-
-            db.commit()
-            db.refresh(db_result)
-            logger.info(f"Saved SMS result to database with ID: {db_result.id}")
-
-            # Notify Flask app
-            try:
-                logger.info(f"Notifying Flask app at {FLASK_APP_URL}")
-                async with httpx.AsyncClient() as client:
-                    response = await client.post(
-                        FLASK_APP_URL,
-                        json={
-                            "result_id": db_result.id,
-                            "timestamp": db_result.timestamp.isoformat(),
-                            "electorate": db_result.electorate,
-                            "booth_name": result["booth_name"]
-                            or tally_data.get("booth_name"),
-                        },
-                    )
-                    logger.info(
-                        f"Flask app notification response: {response.status_code}"
-                    )
-            except Exception as notify_err:
-                logger.error(f"Failed to notify Flask app: {notify_err}")
-
-            return {
-                "status": "success",
-                "result_id": db_result.id,
-                "electorate": tally_data.get("electorate"),
-                "booth_name": result["booth_name"] or tally_data.get("booth_name"),
-                "primary_votes": tally_data.get("primary_votes"),
-                "two_candidate_preferred": tally_data.get("two_candidate_preferred"),
-                "totals": tally_data.get("totals"),
-            }
-        finally:
-            db.close()
-
-    except HTTPException:
-        raise
+        return {"status": "success", "result_id": result_id}
     except Exception as e:
-        logger.error(f"Error processing SMS: {e}", exc_info=True)
+        logger.error(f"Error processing image: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
